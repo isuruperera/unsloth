@@ -66,12 +66,24 @@ def split_oxc_local_callable_validators(
 
         maybe_spec = _parse_oxc_spec(column = column)
         if maybe_spec is None:
+            if _is_local_callable_validator_column(column):
+                raise ValueError(
+                    "Unsupported local_callable validator: only Unsloth-managed "
+                    "code validators are supported."
+                )
             kept_columns.append(column)
             continue
         oxc_specs.append(maybe_spec)
 
     sanitized["columns"] = kept_columns
     return sanitized, oxc_specs
+
+
+def _is_local_callable_validator_column(column: dict[str, Any]) -> bool:
+    return (
+        str(column.get("column_type") or "").strip() == "validation"
+        and str(column.get("validator_type") or "").strip() == "local_callable"
+    )
 
 
 def register_oxc_local_callable_validators(
@@ -123,7 +135,7 @@ def _parse_oxc_spec(
 
     fn_raw = params.get("validation_function")
     fn_name = fn_raw.strip() if isinstance(fn_raw, str) else ""
-    if not fn_name.startswith(OXC_VALIDATION_FN_MARKER):
+    if not _is_allowed_oxc_fn_spec(fn_name):
         return None
 
     name = str(column.get("name") or "").strip()
@@ -164,6 +176,28 @@ def _parse_batch_size(value: Any) -> int:
     except (TypeError, ValueError):
         return 10
     return parsed if parsed >= 1 else 10
+
+
+def _is_allowed_oxc_fn_spec(fn_name: str) -> bool:
+    if fn_name == OXC_VALIDATION_FN_MARKER:
+        return True
+
+    marker = f"{OXC_VALIDATION_FN_MARKER}:"
+    if not fn_name.startswith(marker):
+        return False
+
+    suffix = fn_name[len(marker) :]
+    parts = suffix.split(":")
+    if not 1 <= len(parts) <= 3 or any(not part.strip() for part in parts):
+        return False
+
+    if parts[0] not in _OXC_LANG_TO_NODE_LANG:
+        return False
+    if len(parts) >= 2 and parts[1] not in _OXC_VALIDATION_MODES:
+        return False
+    if len(parts) >= 3 and parts[2] not in _OXC_CODE_SHAPES:
+        return False
+    return True
 
 
 def _parse_oxc_validation_marker(fn_name: str) -> tuple[str, str, str]:
