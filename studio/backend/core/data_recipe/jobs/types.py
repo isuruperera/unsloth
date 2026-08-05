@@ -62,6 +62,7 @@ class Job:
     error: str | None = None
     started_at: float | None = None
     finished_at: float | None = None
+    owner: str | None = None
 
     analysis: dict[str, Any] | None = None
     artifact_path: str | None = None

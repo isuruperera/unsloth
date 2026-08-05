@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
+from auth.authentication import get_current_subject
 from core.data_recipe.huggingface import (
     RecipeDatasetPublishError,
     publish_recipe_dataset,
@@ -40,7 +41,10 @@ def _normalize_run_name(value: Any) -> str | None:
 
 
 @router.post("/jobs", response_class = JSONResponse, response_model = JobCreateResponse)
-def create_job(payload: RecipePayload):
+def create_job(
+    payload: RecipePayload,
+    current_subject: Annotated[str, Depends(get_current_subject)],
+):
     recipe = payload.recipe
     if not recipe.get("columns"):
         raise HTTPException(status_code = 400, detail = "Recipe must include columns.")
@@ -69,7 +73,7 @@ def create_job(payload: RecipePayload):
 
     mgr = get_job_manager()
     try:
-        job_id = mgr.start(recipe = recipe, run = run)
+        job_id = mgr.start(recipe = recipe, run = run, owner = current_subject)
     except RuntimeError as exc:
         raise HTTPException(status_code = 409, detail = str(exc)) from exc
     except ValueError as exc:
@@ -138,16 +142,16 @@ def job_dataset(
     "/jobs/{job_id}/publish",
     response_class = JSONResponse,
     response_model = PublishDatasetResponse,
+    responses = {404: {"description": "Job not found"}},
 )
-def publish_job_dataset(job_id: str, payload: PublishDatasetRequest):
+def publish_job_dataset(
+    job_id: str,
+    payload: PublishDatasetRequest,
+    current_subject: Annotated[str, Depends(get_current_subject)],
+):
     repo_id = payload.repo_id.strip()
     description = payload.description.strip()
     hf_token = payload.hf_token.strip() if isinstance(payload.hf_token, str) else None
-    artifact_path = (
-        payload.artifact_path.strip()
-        if isinstance(payload.artifact_path, str)
-        else None
-    )
 
     if not repo_id:
         raise HTTPException(status_code = 400, detail = "repo_id is required")
@@ -156,18 +160,23 @@ def publish_job_dataset(job_id: str, payload: PublishDatasetRequest):
 
     mgr = get_job_manager()
     status = mgr.get_status(job_id)
-    if status is not None:
-        if (
-            status.get("status") != "completed"
-            or status.get("execution_type") != "full"
-        ):
-            raise HTTPException(
-                status_code = 409,
-                detail = "Only completed full runs can be published.",
-            )
-        status_artifact = status.get("artifact_path")
-        if isinstance(status_artifact, str) and status_artifact.strip():
-            artifact_path = status_artifact.strip()
+    if status is None:
+        raise HTTPException(status_code = 404, detail = "job not found")
+
+    owner = mgr.get_job_owner(job_id)
+    if owner is None or owner != current_subject:
+        raise HTTPException(status_code = 404, detail = "job not found")
+
+    if status.get("status") != "completed" or status.get("execution_type") != "full":
+        raise HTTPException(
+            status_code = 409,
+            detail = "Only completed full runs can be published.",
+        )
+
+    status_artifact = status.get("artifact_path")
+    artifact_path = (
+        status_artifact.strip() if isinstance(status_artifact, str) else None
+    )
 
     if not artifact_path:
         raise HTTPException(
