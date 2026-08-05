@@ -16,6 +16,12 @@ from utils.paths import auth_db_path, ensure_dir
 DB_PATH = auth_db_path()
 DEFAULT_ADMIN_USERNAME = "unsloth"
 
+# Refresh tokens are single-use, but a client may fire several requests that
+# race on the same token. Replays of a just-consumed token are tolerated for
+# this many seconds; later replays are treated as theft (only the hash is
+# stored, so the rotated token cannot be handed out again).
+REFRESH_TOKEN_REUSE_GRACE_SECONDS = 10
+
 # Plaintext bootstrap password file — lives beside auth.db, deleted on
 # first password change so the credential never lingers on disk.
 _BOOTSTRAP_PW_PATH = DB_PATH.parent / ".bootstrap_password"
@@ -99,7 +105,8 @@ def get_connection() -> sqlite3.Connection:
             id INTEGER PRIMARY KEY,
             token_hash TEXT NOT NULL,
             username TEXT NOT NULL,
-            expires_at TEXT NOT NULL
+            expires_at TEXT NOT NULL,
+            used_at TEXT
         );
         """
     )
@@ -108,6 +115,11 @@ def get_connection() -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE auth_user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
         )
+    token_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(refresh_tokens)")
+    }
+    if "used_at" not in token_columns:
+        conn.execute("ALTER TABLE refresh_tokens ADD COLUMN used_at TEXT")
     conn.commit()
     return conn
 
@@ -319,12 +331,86 @@ def save_refresh_token(token: str, username: str, expires_at: str) -> None:
         conn.close()
 
 
+def consume_refresh_token(token: str) -> Optional[str]:
+    """
+    Atomically consume a refresh token and return the username.
+
+    Refresh tokens are single use: the matched row is marked as consumed so the
+    caller can hand out a rotated replacement. Returns None when the token is
+    unknown, expired, or replayed after the concurrency grace window — such a
+    replay is treated as theft and revokes every refresh token of that user.
+    """
+    token_hash = _hash_token(token)
+    conn = get_connection()
+    conn.isolation_level = None
+    try:
+        # Serialize concurrent refreshes so the read-modify-write is atomic
+        conn.execute("BEGIN IMMEDIATE")
+        now = datetime.now(timezone.utc)
+
+        # Clean up any expired tokens while we're here
+        conn.execute(
+            "DELETE FROM refresh_tokens WHERE expires_at < ?",
+            (now.isoformat(),),
+        )
+
+        cur = conn.execute(
+            """
+            SELECT id, username, expires_at, used_at FROM refresh_tokens
+            WHERE token_hash = ?
+            """,
+            (token_hash,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.execute("COMMIT")
+            return None
+
+        # Check expiry
+        if now > datetime.fromisoformat(row["expires_at"]):
+            conn.execute("DELETE FROM refresh_tokens WHERE id = ?", (row["id"],))
+            conn.execute("COMMIT")
+            return None
+
+        if row["used_at"] is None:
+            cur = conn.execute(
+                """
+                UPDATE refresh_tokens SET used_at = ?
+                WHERE id = ? AND used_at IS NULL
+                """,
+                (now.isoformat(), row["id"]),
+            )
+            consumed = cur.rowcount == 1
+            conn.execute("COMMIT")
+            return row["username"] if consumed else None
+
+        used_at = datetime.fromisoformat(row["used_at"])
+        if (now - used_at).total_seconds() <= REFRESH_TOKEN_REUSE_GRACE_SECONDS:
+            # Benign race: parallel requests refreshed with the same token
+            conn.execute("COMMIT")
+            return row["username"]
+
+        # Replay of an already consumed token — revoke the whole token family
+        conn.execute(
+            "DELETE FROM refresh_tokens WHERE username = ?",
+            (row["username"],),
+        )
+        conn.execute("COMMIT")
+        return None
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def verify_refresh_token(token: str) -> Optional[str]:
     """
     Verify a refresh token and return the username.
 
-    Returns the username if valid and not expired, None otherwise.
-    The token is NOT consumed — it stays valid until it expires.
+    Read-only check that ignores already consumed tokens; the refresh endpoint
+    uses consume_refresh_token instead. Returns the username if the token is
+    unused and not expired, None otherwise.
     """
     token_hash = _hash_token(token)
     conn = get_connection()
@@ -339,7 +425,7 @@ def verify_refresh_token(token: str) -> Optional[str]:
         cur = conn.execute(
             """
             SELECT id, username, expires_at FROM refresh_tokens
-            WHERE token_hash = ?
+            WHERE token_hash = ? AND used_at IS NULL
             """,
             (token_hash,),
         )
@@ -355,6 +441,21 @@ def verify_refresh_token(token: str) -> Optional[str]:
             return None
 
         return row["username"]
+    finally:
+        conn.close()
+
+
+def revoke_refresh_token(token: str) -> bool:
+    """Revoke a single refresh token, returning True if one was removed."""
+    token_hash = _hash_token(token)
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM refresh_tokens WHERE token_hash = ?",
+            (token_hash,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()
 

@@ -10,12 +10,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 
 from .storage import (
+    consume_refresh_token,
     get_all_jwt_secrets,
     get_jwt_secret,
     get_user_and_secret,
     load_jwt_secret,
     save_refresh_token,
-    verify_refresh_token,
 )
 
 ALGORITHM = "HS256"
@@ -91,17 +91,23 @@ def create_refresh_token(subject: str) -> str:
     return token
 
 
-def refresh_access_token(refresh_token: str) -> Tuple[Optional[str], Optional[str]]:
+def refresh_access_token(
+    refresh_token: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Validate a refresh token and issue a new access token.
+    Consume a refresh token and issue a new access token plus a rotated one.
 
-    The refresh token itself is NOT consumed — it stays valid until expiry.
-    Returns a new access_token or None if the refresh token is invalid/expired.
+    The presented refresh token is consumed, so it cannot be replayed.
+    Returns all None if the refresh token is invalid, expired, or already used.
     """
-    username = verify_refresh_token(refresh_token)
+    username = consume_refresh_token(refresh_token)
     if username is None:
-        return None, None
-    return create_access_token(subject = username), username
+        return None, None, None
+    return (
+        create_access_token(subject = username),
+        create_refresh_token(subject = username),
+        username,
+    )
 
 
 def reload_secret() -> None:

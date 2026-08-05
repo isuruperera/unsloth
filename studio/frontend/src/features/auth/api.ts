@@ -46,32 +46,43 @@ async function redirectToAuth(): Promise<void> {
   window.location.href = target;
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
+
 export async function refreshSession(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
+  // Refresh tokens rotate, so concurrent callers must share a single request
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) return false;
 
-  try {
-    const response = await fetch("/api/auth/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      try {
+        const response = await fetch("/api/auth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (!response.ok) {
+          clearAuthTokens();
+          return false;
+        }
+
+        const payload = (await response.json()) as RefreshResponse;
+        storeAuthTokens(
+          payload.access_token,
+          payload.refresh_token,
+          payload.must_change_password,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      refreshInFlight = null;
     });
-
-    if (!response.ok) {
-      clearAuthTokens();
-      return false;
-    }
-
-    const payload = (await response.json()) as RefreshResponse;
-    storeAuthTokens(
-      payload.access_token,
-      payload.refresh_token,
-      payload.must_change_password,
-    );
-    return true;
-  } catch {
-    return false;
   }
+
+  return refreshInFlight;
 }
 
 export async function authFetch(

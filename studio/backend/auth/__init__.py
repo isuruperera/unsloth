@@ -27,7 +27,9 @@ from .storage import (
     requires_password_change,
     save_refresh_token,
     update_password,
+    consume_refresh_token,
     verify_refresh_token,
+    revoke_refresh_token,
     revoke_user_refresh_tokens,
 )
 from .hashing import hash_password, verify_password
@@ -52,7 +54,9 @@ __all__ = [
     "requires_password_change",
     "save_refresh_token",
     "update_password",
+    "consume_refresh_token",
     "verify_refresh_token",
+    "revoke_refresh_token",
     "revoke_user_refresh_tokens",
     "hash_password",
     "verify_password",
