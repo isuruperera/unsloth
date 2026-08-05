@@ -79,10 +79,13 @@ async def refresh(payload: RefreshTokenRequest) -> Token:
     """
     Exchange a valid refresh token for a new access token.
 
-    The refresh token itself is reusable until it expires (7 days).
+    Each refresh rotates the token: the presented one is invalidated and a
+    fresh refresh token is returned alongside the new access token.
     """
-    new_access_token, username = refresh_access_token(payload.refresh_token)
-    if new_access_token is None or username is None:
+    new_access_token, new_refresh_token, username = refresh_access_token(
+        payload.refresh_token
+    )
+    if new_access_token is None or new_refresh_token is None or username is None:
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
             detail = "Invalid or expired refresh token",
@@ -90,7 +93,7 @@ async def refresh(payload: RefreshTokenRequest) -> Token:
 
     return Token(
         access_token = new_access_token,
-        refresh_token = payload.refresh_token,
+        refresh_token = new_refresh_token,
         token_type = "bearer",
         must_change_password = storage.requires_password_change(username),
     )
