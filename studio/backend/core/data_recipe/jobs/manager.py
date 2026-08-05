@@ -71,7 +71,7 @@ class JobManager:
         self._pump_thread: threading.Thread | None = None
         self._seq: int = 0
 
-    def start(self, *, recipe: dict, run: dict) -> str:
+    def start(self, *, recipe: dict, run: dict, owner: str | None = None) -> str:
         """Spawn the job subprocess (one at a time, no cap)."""
         llm_columns = recipe.get("columns") or []
         llm_column_count = 0
@@ -91,6 +91,7 @@ class JobManager:
 
             job_id = uuid.uuid4().hex
             self._job = Job(job_id = job_id, status = "pending", started_at = time.time())
+            self._job.owner = owner
             self._job.progress_columns_total = llm_column_count
             self._events.clear()
             self._seq = 0
@@ -203,6 +204,13 @@ class JobManager:
         """Return current job_id (or None)."""
         with self._lock:
             return None if self._job is None else self._job.job_id
+
+    def get_job_owner(self, job_id: str) -> str | None:
+        """Return the subject that started the job (or None)."""
+        with self._lock:
+            if self._job is None or self._job.job_id != job_id:
+                return None
+            return self._job.owner
 
     def get_analysis(self, job_id: str) -> dict | None:
         """Final profiling output (only after job completes)."""

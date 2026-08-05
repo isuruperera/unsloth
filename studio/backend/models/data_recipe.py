@@ -57,7 +57,9 @@ class PublishDatasetRequest(BaseModel):
     )
     artifact_path: str | None = Field(
         default = None,
-        description = "Execution artifact path captured by the UI for completed runs",
+        description = (
+            "Ignored by the server: the artifact path is resolved from the job record"
+        ),
     )
 
 
