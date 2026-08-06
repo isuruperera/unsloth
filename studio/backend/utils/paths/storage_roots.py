@@ -164,30 +164,50 @@ def resolve_tensorboard_dir(path_value: str | None = None) -> Path:
     )
 
 
-def resolve_dataset_path(path_value: str) -> Path:
-    path = Path(path_value).expanduser()
-    if path.is_absolute():
-        return path
+def _resolve_contained_dataset_path(candidate: Path, root: Path) -> Path:
+    resolved = candidate.resolve(strict=False)
+    if not resolved.is_relative_to(root):
+        raise ValueError("Invalid dataset path")
+    return resolved
 
-    parts = [part for part in Path(path_value).parts if part not in ("", ".")]
+
+def _dataset_path_candidates(parts: list[str]) -> list[Path]:
     if parts[:2] == ["assets", "datasets"]:
         parts = parts[2:]
     if parts and parts[0] == "uploads":
         cleaned = Path(*parts[1:]) if len(parts) > 1 else Path()
-        return dataset_uploads_root() / cleaned
+        return [dataset_uploads_root() / cleaned]
     if parts and parts[0] == "recipes":
         cleaned = Path(*parts[1:]) if len(parts) > 1 else Path()
-        return recipe_datasets_root() / cleaned
+        return [recipe_datasets_root() / cleaned]
 
     cleaned = Path(*parts) if parts else Path()
-    candidates = [
+    return [
         dataset_uploads_root() / cleaned,
         recipe_datasets_root() / cleaned,
         datasets_root() / cleaned,
         dataset_uploads_root() / cleaned.name,
         recipe_datasets_root() / cleaned.name,
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+
+
+def resolve_dataset_path(path_value: str) -> Path:
+    unexpanded = Path(path_value)
+    if not unexpanded.is_absolute() and ".." in unexpanded.parts:
+        raise ValueError("Invalid dataset path")
+
+    path = unexpanded.expanduser()
+    root = datasets_root().resolve(strict=False)
+    if path.is_absolute():
+        return _resolve_contained_dataset_path(path, root)
+
+    parts = [part for part in path.parts if part not in ("", ".")]
+    candidates = _dataset_path_candidates(parts)
+    first_candidate = _resolve_contained_dataset_path(candidates[0], root)
+    if first_candidate.exists():
+        return first_candidate
+    for candidate in candidates[1:]:
+        resolved = _resolve_contained_dataset_path(candidate, root)
+        if resolved.exists():
+            return resolved
+    return first_candidate
