@@ -11,14 +11,6 @@ import type { ReactElement } from "react";
 import type { SyntheticEvent } from "react";
 import { refreshSession } from "../api";
 
-// Bootstrap credentials injected into index.html by the backend
-// (only present while default admin must_change_password is true)
-declare global {
-  interface Window {
-    __UNSLOTH_BOOTSTRAP__?: { username: string; password: string };
-  }
-}
-
 import {
   clearAuthTokens,
   getAuthToken,
@@ -146,16 +138,6 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement | null {
     };
   }, [navigate]);
 
-  // Seed password from bootstrap credentials injected into HTML
-  useEffect(() => {
-    const bootstrap = window.__UNSLOTH_BOOTSTRAP__;
-    if (bootstrap) {
-      if (!isLoginMode && !password) {
-        setPassword(bootstrap.password);
-      }
-    }
-  }, []);
-
   const blockedByState =
     initialized === false ||
     (mode === "login" && requiresPasswordChange) ||
@@ -170,18 +152,21 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement | null {
     helperText = "Password already updated. Use the login screen.";
   }
   const title = isLoginMode ? "Welcome back" : "Setup your account";
-  const subtitle = isLoginMode  
+  const subtitle = isLoginMode
     ? "Sign in with your password."
-    : "Choose a new password";
+    : "Enter the password shown in the server's startup terminal output, then choose a new password.";
   const submitLabel = isLoginMode ? "Login" : "Change password";
   const showSwitchLink = !isLoginMode;
   const switchText = "Password already setup? ";
   const switchLinkTo = "/login";
   const switchLinkText = "Back to login";
-  const currentPassword = password || window.__UNSLOTH_BOOTSTRAP__?.password || "";
+  const currentPassword = password;
   const invalidChangePasswordForm =
     !isLoginMode &&
-    (newPassword.length < 8 || newPassword !== confirmPassword || currentPassword === newPassword);
+    (currentPassword.length < 8 ||
+      newPassword.length < 8 ||
+      newPassword !== confirmPassword ||
+      currentPassword === newPassword);
   const showPasswordMismatchWarning =
     !isLoginMode &&
     newPassword.length > 0 &&
@@ -298,36 +283,34 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement | null {
         <p className="text-muted-foreground">{subtitle}</p>
       </div>
       <form className="space-y-5" onSubmit={handleSubmit}>
-        {isLoginMode && (
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                className="pr-10"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                minLength={8}
-                required
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
-                onClick={() => setShowPassword((prev) => !prev)}
-              >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">{isLoginMode ? "Password" : "Current password"}</Label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              className="pr-10"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              required
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
+              onClick={() => setShowPassword((prev) => !prev)}
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </Button>
           </div>
-        )}
+        </div>
 
         {!isLoginMode && (
           <>
