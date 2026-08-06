@@ -79,6 +79,16 @@ def _validate_local_dataset_paths(
     return validated
 
 
+def _require_job_owner(backend, current_subject: str) -> None:
+    """Reject reads of another user's training job."""
+    owner = getattr(backend, "current_owner", None)
+    if owner and owner != current_subject:
+        raise HTTPException(
+            status_code = 403,
+            detail = "Training job belongs to another user",
+        )
+
+
 @router.get("/hardware")
 async def get_hardware_utilization(
     current_subject: str = Depends(get_current_subject),
@@ -259,6 +269,8 @@ async def start_training(
                 error = progress_error or "subprocess_start_failed",
             )
 
+        backend.current_owner = current_subject
+
         return TrainingJobResponse(
             job_id = job_id,
             status = "queued",
@@ -354,6 +366,7 @@ async def reset_training(
         backend.step_history = []
         backend.grad_norm_history = []
         backend.grad_norm_step_history = []
+        backend.current_owner = None
         return {"status": "ok"}
     except HTTPException:
         raise
@@ -365,15 +378,20 @@ async def reset_training(
         )
 
 
-@router.get("/status")
+@router.get(
+    "/status",
+    responses = {403: {"description": "Training job belongs to another user"}},
+)
 async def get_training_status(
     current_subject: str = Depends(get_current_subject),
 ):
     """
     Get the current training status.
     """
+    backend = get_training_backend()
+    _require_job_owner(backend, current_subject)
+
     try:
-        backend = get_training_backend()
         job_id: str = getattr(backend, "current_job_id", "") or ""
 
         # Check if training is active
@@ -454,16 +472,21 @@ async def get_training_status(
         )
 
 
-@router.get("/metrics", response_model = TrainingMetricsResponse)
+@router.get(
+    "/metrics",
+    response_model = TrainingMetricsResponse,
+    responses = {403: {"description": "Training job belongs to another user"}},
+)
 async def get_training_metrics(
     current_subject: str = Depends(get_current_subject),
 ):
     """
     Get training metrics (loss, learning rate, steps).
     """
-    try:
-        backend = get_training_backend()
+    backend = get_training_backend()
+    _require_job_owner(backend, current_subject)
 
+    try:
         # Get metrics from backend
         loss_history = backend.loss_history
         lr_history = backend.lr_history
@@ -494,7 +517,10 @@ async def get_training_metrics(
         )
 
 
-@router.get("/progress")
+@router.get(
+    "/progress",
+    responses = {403: {"description": "Training job belongs to another user"}},
+)
 async def stream_training_progress(
     request: Request,
     current_subject: str = Depends(get_current_subject),
@@ -509,6 +535,8 @@ async def stream_training_progress(
       - Sends named `event:` types (progress, heartbeat, complete, error).
       - Reads `Last-Event-ID` header on reconnect to replay missed steps.
     """
+    _require_job_owner(get_training_backend(), current_subject)
+
     # Read Last-Event-ID header for reconnection resume
     last_event_id = request.headers.get("last-event-id")
     resume_from_step: Optional[int] = None
