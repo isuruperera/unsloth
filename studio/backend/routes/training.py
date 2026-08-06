@@ -25,7 +25,7 @@ if str(backend_path) not in sys.path:
 try:
     from core.training import get_training_backend
     from utils.models.model_config import load_model_defaults
-    from utils.paths import resolve_dataset_path
+    from utils.paths import datasets_root, resolve_dataset_path
 except ImportError:
     # Fallback: try to import from parent directory
     parent_backend = backend_path.parent / "backend"
@@ -33,7 +33,7 @@ except ImportError:
         sys.path.insert(0, str(parent_backend))
     from core.training import get_training_backend
     from utils.models.model_config import load_model_defaults
-    from utils.paths import resolve_dataset_path
+    from utils.paths import datasets_root, resolve_dataset_path
 
 # Auth
 from auth.authentication import get_current_subject
@@ -61,20 +61,31 @@ def _validate_local_dataset_paths(
 ) -> list[str]:
     """Resolve and validate a list of local dataset paths. Returns validated absolute paths."""
     validated = []
-    missing = []
+    missing = False
+    root = datasets_root().resolve(strict=False)
     for dataset_path in paths:
-        dataset_file = resolve_dataset_path(dataset_path)
+        try:
+            dataset_file = resolve_dataset_path(dataset_path)
+        except ValueError:
+            raise HTTPException(
+                status_code = 400,
+                detail = "Invalid local dataset path",
+            ) from None
+        if not dataset_file.is_relative_to(root):
+            raise HTTPException(
+                status_code = 400,
+                detail = "Invalid local dataset path",
+            )
         if not dataset_file.exists():
-            missing.append(f"{dataset_path} (resolved: {dataset_file})")
+            missing = True
             continue
         logger.info(f"Found {label.lower()} file: {dataset_file}")
         validated.append(str(dataset_file))
 
     if missing:
-        missing_detail = "; ".join(missing[:3])
         raise HTTPException(
             status_code = 400,
-            detail = f"{label} not found: {missing_detail}",
+            detail = f"{label} not found",
         )
     return validated
 
@@ -95,7 +106,10 @@ async def get_hardware_utilization(
     return get_gpu_utilization()
 
 
-@router.post("/start")
+@router.post(
+    "/start",
+    responses={400: {"description": "Invalid or unavailable local dataset path"}},
+)
 async def start_training(
     request: TrainingStartRequest,
     current_subject: str = Depends(get_current_subject),
@@ -266,6 +280,8 @@ async def start_training(
             error = None,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting training: {e}", exc_info = True)
         raise HTTPException(
