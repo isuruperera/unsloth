@@ -23,7 +23,13 @@ from utils.hardware import clear_gpu_cache
 
 from utils.models import is_vision_model, get_base_model_from_lora
 from utils.models.model_config import detect_audio_type
-from utils.paths import ensure_dir, outputs_root, resolve_export_dir, resolve_output_dir
+from utils.paths import (
+    ensure_dir,
+    exports_root,
+    outputs_root,
+    resolve_export_dir,
+    resolve_output_dir,
+)
 from core.inference import get_inference_backend
 
 logger = get_logger(__name__)
@@ -95,6 +101,14 @@ This {model_type} model was trained 2x faster with [Unsloth](https://github.com/
 
 
 _MSG_NO_MODEL_LOADED = "No model loaded. Please select a checkpoint first."
+
+
+def _resolve_confined_export_dir(save_directory: str) -> str:
+    """Resolve a save directory, rejecting anything outside the exports root."""
+    resolved = resolve_export_dir(save_directory)
+    if not resolved.resolve().is_relative_to(exports_root().resolve()):
+        raise ValueError("Invalid save directory")
+    return str(resolved)
 
 
 class ExportBackend:
@@ -348,7 +362,7 @@ class ExportBackend:
 
             # Save locally if requested
             if save_directory:
-                save_directory = str(resolve_export_dir(save_directory))
+                save_directory = _resolve_confined_export_dir(save_directory)
                 logger.info(f"Saving merged model locally to: {save_directory}")
                 ensure_dir(Path(save_directory))
 
@@ -419,7 +433,7 @@ class ExportBackend:
         try:
             # Save locally if requested
             if save_directory:
-                save_directory = str(resolve_export_dir(save_directory))
+                save_directory = _resolve_confined_export_dir(save_directory)
                 logger.info(f"Saving base model locally to: {save_directory}")
                 ensure_dir(Path(save_directory))
 
@@ -518,7 +532,7 @@ class ExportBackend:
 
             # Save locally if requested
             if save_directory:
-                save_directory = str(resolve_export_dir(save_directory))
+                save_directory = _resolve_confined_export_dir(save_directory)
                 # Resolve to absolute path so unsloth's relative-path internals
                 # (check_llama_cpp, use_local_gguf, _download_convert_hf_to_gguf)
                 # all resolve against the repo root cwd, NOT the export directory.
@@ -636,7 +650,7 @@ class ExportBackend:
         try:
             # Save locally if requested
             if save_directory:
-                save_directory = str(resolve_export_dir(save_directory))
+                save_directory = _resolve_confined_export_dir(save_directory)
                 logger.info(f"Saving LoRA adapter locally to: {save_directory}")
                 ensure_dir(Path(save_directory))
 
