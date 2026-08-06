@@ -23,7 +23,13 @@ from utils.hardware import clear_gpu_cache
 
 from utils.models import is_vision_model, get_base_model_from_lora
 from utils.models.model_config import detect_audio_type
-from utils.paths import ensure_dir, outputs_root, resolve_export_dir, resolve_output_dir
+from utils.paths import (
+    ensure_dir,
+    exports_root,
+    outputs_root,
+    resolve_export_dir,
+    resolve_output_dir,
+)
 from core.inference import get_inference_backend
 
 logger = get_logger(__name__)
@@ -523,6 +529,10 @@ class ExportBackend:
                 # (check_llama_cpp, use_local_gguf, _download_convert_hf_to_gguf)
                 # all resolve against the repo root cwd, NOT the export directory.
                 abs_save_dir = os.path.abspath(save_directory)
+                if not Path(abs_save_dir).resolve().is_relative_to(
+                    exports_root().resolve()
+                ):
+                    return False, "Invalid export directory"
                 logger.info(f"Saving GGUF model locally to: {abs_save_dir}")
 
                 # Create the directory if it doesn't exist
