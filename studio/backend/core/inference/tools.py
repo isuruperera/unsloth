@@ -24,6 +24,20 @@ logger = get_logger(__name__)
 _EXEC_TIMEOUT = 300  # 5 minutes
 _MAX_OUTPUT_CHARS = 8000  # truncate long output
 _BASH_BLOCKED_WORDS = {"rm", "sudo", "dd", "chmod", "mkfs", "shutdown", "reboot"}
+_CODE_EXECUTION_TOOL_NAMES = {"python", "terminal"}
+
+
+def code_execution_enabled() -> bool:
+    """Whether the python/terminal code-execution tools are enabled.
+
+    Off by default; must be explicitly enabled by the operator since these
+    tools run caller-supplied code/commands on the host.
+    """
+    return os.environ.get("UNSLOTH_STUDIO_ENABLE_CODE_EXECUTION", "").strip() in (
+        "1",
+        "true",
+    )
+
 
 # Per-session working directories so each chat thread gets its own sandbox.
 # Falls back to a shared ~/studio_sandbox/ for API callers without a session_id.
@@ -110,6 +124,20 @@ TERMINAL_TOOL = {
 ALL_TOOLS = [WEB_SEARCH_TOOL, PYTHON_TOOL, TERMINAL_TOOL]
 
 
+def available_tools() -> list[dict]:
+    """Return the tools this server is permitted to advertise/execute.
+
+    The `python` and `terminal` tools run caller-supplied code/commands on
+    the host and are therefore excluded unless explicitly enabled via
+    ``code_execution_enabled()``.
+    """
+    if code_execution_enabled():
+        return list(ALL_TOOLS)
+    return [
+        t for t in ALL_TOOLS if t["function"]["name"] not in _CODE_EXECUTION_TOOL_NAMES
+    ]
+
+
 _TIMEOUT_UNSET = object()
 
 
@@ -130,6 +158,8 @@ def execute_tool(
         f"execute_tool: name={name}, session_id={session_id}, timeout={timeout}"
     )
     effective_timeout = _EXEC_TIMEOUT if timeout is _TIMEOUT_UNSET else timeout
+    if name in _CODE_EXECUTION_TOOL_NAMES and not code_execution_enabled():
+        return "Error: code execution tools are disabled on this server."
     if name == "web_search":
         return _web_search(arguments.get("query", ""), timeout = effective_timeout)
     if name == "python":

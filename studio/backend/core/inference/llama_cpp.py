@@ -1638,6 +1638,9 @@ class LlamaCppBackend:
 
         conversation = list(messages)
         url = f"{self.base_url}/v1/chat/completions"
+        allowed_tool_names = {
+            t.get("function", {}).get("name", "") for t in (tools or [])
+        }
 
         for iteration in range(max_tool_iterations):
             if cancel_event is not None and cancel_event.is_set():
@@ -1790,16 +1793,19 @@ class LlamaCppBackend:
                     }
 
                     # Execute the tool
-                    _effective_timeout = (
-                        None if tool_call_timeout >= 9999 else tool_call_timeout
-                    )
-                    result = execute_tool(
-                        tool_name,
-                        arguments,
-                        cancel_event = cancel_event,
-                        timeout = _effective_timeout,
-                        session_id = session_id,
-                    )
+                    if tool_name not in allowed_tool_names:
+                        result = f"Error: tool '{tool_name}' is not enabled."
+                    else:
+                        _effective_timeout = (
+                            None if tool_call_timeout >= 9999 else tool_call_timeout
+                        )
+                        result = execute_tool(
+                            tool_name,
+                            arguments,
+                            cancel_event = cancel_event,
+                            timeout = _effective_timeout,
+                            session_id = session_id,
+                        )
 
                     # Emit tool_end so the frontend can record outputs
                     yield {
