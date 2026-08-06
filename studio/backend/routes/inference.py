@@ -1026,16 +1026,16 @@ async def openai_chat_completions(
         )
 
         if use_tools:
-            from core.inference.tools import ALL_TOOLS
+            from core.inference.tools import available_tools
 
             if payload.enabled_tools is not None:
                 tools_to_use = [
                     t
-                    for t in ALL_TOOLS
+                    for t in available_tools()
                     if t["function"]["name"] in payload.enabled_tools
                 ]
             else:
-                tools_to_use = ALL_TOOLS
+                tools_to_use = available_tools()
 
             def gguf_generate_with_tools():
                 sp = SamplingParams(
