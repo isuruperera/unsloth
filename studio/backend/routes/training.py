@@ -115,9 +115,8 @@ async def start_training(
 
         backend = get_training_backend()
 
-        # Generate job ID and attach to backend for later status/progress calls
+        # Generate job ID for later status/progress calls
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        backend.current_job_id = job_id
 
         # Check if training is already active
         if backend.is_training_active():
@@ -247,6 +246,9 @@ async def start_training(
         except Exception as e:
             logger.warning("Could not shut down export subprocess: %s", e)
 
+        backend.current_job_id = job_id
+        backend.current_job_owner = current_subject
+
         # start_training now spawns a subprocess (non-blocking)
         success = backend.start_training(**training_kwargs)
 
@@ -274,7 +276,11 @@ async def start_training(
         )
 
 
-@router.post("/stop", response_model = TrainingStopResponse)
+@router.post(
+    "/stop",
+    response_model = TrainingStopResponse,
+    responses = {403: {"description": "Training job is owned by another subject"}},
+)
 async def stop_training(
     body: TrainingStopRequest = TrainingStopRequest(),
     current_subject: str = Depends(get_current_subject),
@@ -295,6 +301,15 @@ async def stop_training(
                 status = "idle", message = "No training job is currently running"
             )
 
+        if (
+            backend.current_job_owner is not None
+            and backend.current_job_owner != current_subject
+        ):
+            raise HTTPException(
+                status_code = 403,
+                detail = "Training job is owned by another subject",
+            )
+
         # Call backend stop method
         backend.stop_training(save = body.save)
 
@@ -303,6 +318,8 @@ async def stop_training(
             message = "Stop requested. Training will stop at the next safe step.",
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error stopping training: {e}", exc_info = True)
         raise HTTPException(
@@ -310,7 +327,10 @@ async def stop_training(
         )
 
 
-@router.post("/reset")
+@router.post(
+    "/reset",
+    responses = {403: {"description": "Training job is owned by another subject"}},
+)
 async def reset_training(
     current_subject: str = Depends(get_current_subject),
 ):
@@ -319,6 +339,16 @@ async def reset_training(
     """
     try:
         backend = get_training_backend()
+
+        if (
+            backend.current_job_owner is not None
+            and backend.current_job_owner != current_subject
+        ):
+            raise HTTPException(
+                status_code = 403,
+                detail = "Training job is owned by another subject",
+            )
+
         is_active = backend.is_training_active()
 
         if is_active:
