@@ -95,6 +95,7 @@ This {model_type} model was trained 2x faster with [Unsloth](https://github.com/
 
 
 _MSG_NO_MODEL_LOADED = "No model loaded. Please select a checkpoint first."
+_GGUF_GLOB_PATTERN = "*.gguf"
 
 
 class ExportBackend:
@@ -535,7 +536,7 @@ class ExportBackend:
                 # unsloth's convert_to_gguf writes output files relative to
                 # cwd (repo root), so we diff afterwards and relocate them.
                 cwd = os.getcwd()
-                pre_existing_ggufs = set(glob.glob(os.path.join(cwd, "*.gguf")))
+                pre_existing_ggufs = set(glob.glob(os.path.join(cwd, _GGUF_GLOB_PATTERN)))
 
                 # Pass absolute path — no os.chdir needed.
                 # unsloth saves intermediate HF model files into model_save_path.
@@ -551,7 +552,7 @@ class ExportBackend:
                 # convert_to_gguf writes .gguf files to cwd (repo root)
                 # because --outfile is a relative path like "model.Q4_K_M.gguf".
                 new_ggufs = (
-                    set(glob.glob(os.path.join(cwd, "*.gguf"))) - pre_existing_ggufs
+                    set(glob.glob(os.path.join(cwd, _GGUF_GLOB_PATTERN))) - pre_existing_ggufs
                 )
                 for src in sorted(new_ggufs):
                     dest = os.path.join(abs_save_dir, os.path.basename(src))
@@ -566,7 +567,7 @@ class ExportBackend:
                 for sub in Path(abs_save_dir).iterdir():
                     if not sub.is_dir():
                         continue
-                    for src in sub.glob("*.gguf"):
+                    for src in sub.glob(_GGUF_GLOB_PATTERN):
                         dest = os.path.join(abs_save_dir, src.name)
                         shutil.move(str(src), dest)
                         logger.info(f"Relocated GGUF: {src.name} → {abs_save_dir}/")
@@ -579,7 +580,7 @@ class ExportBackend:
 
                 # Log final file locations (after relocation) so it's clear
                 # where the GGUF files actually ended up.
-                final_ggufs = sorted(glob.glob(os.path.join(abs_save_dir, "*.gguf")))
+                final_ggufs = sorted(glob.glob(os.path.join(abs_save_dir, _GGUF_GLOB_PATTERN)))
                 logger.info(
                     "GGUF export complete. Final files in %s:\n  %s",
                     abs_save_dir,
