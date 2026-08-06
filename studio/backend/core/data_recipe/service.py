@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,54 @@ from .local_callable_validators import (
 )
 
 _IMAGE_CONTEXT_PATCHED = False
+
+_API_KEY_ENV_ALLOWLIST_ENV_VAR = "UNSLOTH_ALLOWED_API_KEY_ENV_VARS"
+
+_DEFAULT_ALLOWED_API_KEY_ENV_VARS = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "TOOL_SERVER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "TOGETHER_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "FIREWORKS_API_KEY",
+        "XAI_API_KEY",
+        "NVIDIA_API_KEY",
+        "VLLM_API_KEY",
+    }
+)
+
+_API_KEY_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_]\w*$")
+
+
+def _allowed_api_key_env_names() -> set[str]:
+    extra_names = {
+        name.strip()
+        for name in os.getenv(_API_KEY_ENV_ALLOWLIST_ENV_VAR, "").split(",")
+        if name.strip()
+    }
+    return set(_DEFAULT_ALLOWED_API_KEY_ENV_VARS) | extra_names
+
+
+def _resolve_api_key_env(api_key_env: Any) -> str | None:
+    name = str(api_key_env).strip()
+    if not name:
+        return None
+    if (
+        not _API_KEY_ENV_NAME_PATTERN.match(name)
+        or name not in _allowed_api_key_env_names()
+    ):
+        raise ValueError(
+            f"Environment variable '{name}' is not allowed as an api_key_env source. "
+            f"Add it to the {_API_KEY_ENV_ALLOWLIST_ENV_VAR} allowlist to permit its use."
+        )
+    return os.getenv(name)
 
 
 def _encode_bytes_to_base64(value: bytes | bytearray) -> str:
@@ -138,7 +187,7 @@ def build_model_providers(recipe: dict[str, Any]):
         api_key = provider.get("api_key")
         api_key_env = provider.get("api_key_env")
         if not api_key and api_key_env:
-            api_key = os.getenv(api_key_env)
+            api_key = _resolve_api_key_env(api_key_env)
         providers.append(
             ModelProvider(
                 name = provider["name"],
@@ -207,7 +256,7 @@ def build_mcp_providers(
             api_key = provider.get("api_key")
             api_key_env = provider.get("api_key_env")
             if not api_key and api_key_env:
-                api_key = os.getenv(str(api_key_env))
+                api_key = _resolve_api_key_env(api_key_env)
             providers.append(
                 MCPProvider(
                     name = str(provider.get("name", "")),
