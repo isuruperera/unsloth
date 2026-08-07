@@ -134,10 +134,19 @@ def resolve_under_root(
 
     path = Path(str(path_value).strip()).expanduser()
     if path.is_absolute():
-        return path
+        candidate = path
+    else:
+        cleaned = _clean_relative_path(str(path), strip_prefixes = strip_prefixes)
+        candidate = root / cleaned
 
-    cleaned = _clean_relative_path(str(path), strip_prefixes = strip_prefixes)
-    return root / cleaned
+    resolved_root = root.resolve()
+    resolved_candidate = candidate.resolve()
+    if resolved_candidate != resolved_root and not resolved_candidate.is_relative_to(
+        resolved_root
+    ):
+        raise ValueError(f"path {path_value!r} escapes {root}")
+
+    return resolved_candidate
 
 
 def resolve_output_dir(path_value: str | None = None) -> Path:
