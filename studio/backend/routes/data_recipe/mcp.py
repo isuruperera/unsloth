@@ -38,7 +38,16 @@ def list_mcp_tools(payload: McpToolsListRequest) -> McpToolsListResponse:
 
     for provider_payload in payload.mcp_providers:
         provider_name = str(provider_payload.get("name", "")).strip()
-        built = build_mcp_providers({"mcp_providers": [provider_payload]})
+        try:
+            built = build_mcp_providers({"mcp_providers": [provider_payload]})
+        except ValueError as exc:
+            providers.append(
+                McpToolsProviderResult(
+                    name = provider_name,
+                    error = str(exc),
+                )
+            )
+            continue
         if len(built) != 1:
             providers.append(
                 McpToolsProviderResult(
