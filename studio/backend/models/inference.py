@@ -29,10 +29,6 @@ class LoadRequest(BaseModel):
     gguf_variant: Optional[str] = Field(
         None, description = "GGUF quantization variant (e.g. 'Q4_K_M')"
     )
-    trust_remote_code: bool = Field(
-        False,
-        description = "Allow loading models with custom code (e.g. NVIDIA Nemotron). Only enable for repos you trust.",
-    )
     chat_template_override: Optional[str] = Field(
         None,
         description = "Custom Jinja2 chat template to use instead of the model's default",

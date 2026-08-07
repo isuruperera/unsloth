@@ -30,7 +30,6 @@ try:
     from core.inference.llama_cpp import LlamaCppBackend, SamplingParams
     from utils.models import ModelConfig
     from utils.inference import load_inference_config
-    from utils.models.model_config import load_model_defaults
 except ImportError:
     parent_backend = backend_path.parent / "backend"
     if str(parent_backend) not in sys.path:
@@ -39,7 +38,6 @@ except ImportError:
     from core.inference.llama_cpp import LlamaCppBackend, SamplingParams
     from utils.models import ModelConfig
     from utils.inference import load_inference_config
-    from utils.models.model_config import load_model_defaults
 
 from models.inference import (
     LoadRequest,
@@ -66,6 +64,7 @@ import base64
 import numpy as np
 
 router = APIRouter()
+openai_router = APIRouter()
 logger = get_logger(__name__)
 
 
@@ -342,24 +341,10 @@ async def load_model(
             max_seq_length = request.max_seq_length,
             load_in_4bit = load_in_4bit,
             hf_token = request.hf_token,
-            trust_remote_code = request.trust_remote_code,
+            trust_remote_code = False,
         )
 
         if not success:
-            # Check if YAML says this model needs trust_remote_code
-            if not request.trust_remote_code:
-                model_defaults = load_model_defaults(config.identifier)
-                yaml_trust = model_defaults.get("inference", {}).get(
-                    "trust_remote_code", False
-                )
-                if yaml_trust:
-                    raise HTTPException(
-                        status_code = 400,
-                        detail = (
-                            f"Model '{config.display_name}' requires trust_remote_code to be enabled. "
-                            f"Please enable 'Trust remote code' in Chat Settings and try again."
-                        ),
-                    )
             raise HTTPException(
                 status_code = 500, detail = f"Failed to load model: {config.display_name}"
             )
@@ -816,6 +801,7 @@ def _extract_content_parts(
 
 
 @router.post("/chat/completions")
+@openai_router.post("/chat/completions")
 async def openai_chat_completions(
     payload: ChatCompletionRequest,
     request: Request,
@@ -1483,6 +1469,7 @@ async def openai_chat_completions(
 
 
 @router.get("/models")
+@openai_router.get("/models")
 async def openai_list_models(
     current_subject: str = Depends(get_current_subject),
 ):

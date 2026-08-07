@@ -320,7 +320,6 @@ export function SharedComposer({
     if (isGeneralizedCompare) {
       const store = useChatRuntimeStore.getState();
       const maxSeqLength = store.params.maxSeqLength;
-      const trustRemoteCode = store.params.trustRemoteCode ?? false;
       const chatTemplateOverride = store.chatTemplateOverride;
 
       function modelDisplayName(id: string): string {
@@ -337,7 +336,6 @@ export function SharedComposer({
           load_in_4bit: true,
           is_lora: sel.isLora,
           gguf_variant: sel.ggufVariant ?? null,
-          trust_remote_code: trustRemoteCode,
           chat_template_override: chatTemplateOverride,
         });
         useChatRuntimeStore.getState().setCheckpoint(

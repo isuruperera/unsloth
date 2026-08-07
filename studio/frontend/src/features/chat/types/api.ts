@@ -37,8 +37,6 @@ export interface LoadModelRequest {
   load_in_4bit: boolean;
   is_lora: boolean;
   gguf_variant?: string | null;
-  /** Allow loading models with custom code (e.g. NVIDIA Nemotron). Only enable for repos you trust. */
-  trust_remote_code?: boolean;
   chat_template_override?: string | null;
   cache_type_kv?: string | null;
 }
@@ -83,7 +81,6 @@ export interface LoadModelResponse {
     top_k?: number;
     min_p?: number;
     presence_penalty?: number;
-    trust_remote_code?: boolean;
   };
   context_length?: number | null;
   supports_reasoning?: boolean;
@@ -112,7 +109,6 @@ export interface InferenceStatusResponse {
     top_k?: number;
     min_p?: number;
     presence_penalty?: number;
-    trust_remote_code?: boolean;
   };
   supports_reasoning?: boolean;
   supports_tools?: boolean;
