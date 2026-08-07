@@ -31,7 +31,7 @@ class LoadRequest(BaseModel):
     )
     trust_remote_code: bool = Field(
         False,
-        description = "Allow loading models with custom code (e.g. NVIDIA Nemotron). Only enable for repos you trust.",
+        description = "Deprecated and ignored by the server. Whether to trust remote code is derived from the server-side model defaults, not the request.",
     )
     chat_template_override: Optional[str] = Field(
         None,
