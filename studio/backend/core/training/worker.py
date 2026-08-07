@@ -121,45 +121,66 @@ def run_training_process(
             model_name,
         )
 
-    # ── 1b. Auto-install mamba-ssm for SSM/hybrid models (NemotronH, Falcon-H1) ──
+    # ── 1b. mamba-ssm for SSM/hybrid models (NemotronH, Falcon-H1) ──
+    # These packages must be pre-installed in the training environment image.
+    # Runtime installation is an opt-in, operator-controlled escape hatch,
+    # gated by an environment flag and limited to a hard-coded, pinned
+    # package list — it is never derived from request input such as model_name.
     _SSM_MODEL_SUBSTRINGS = ("nemotron_h", "nemotron-3-nano", "falcon_h1", "falcon-h1")
+    _SSM_PACKAGE_SPECS = ("causal_conv1d==1.4.0", "mamba_ssm==2.2.2")
     if any(sub in model_name.lower() for sub in _SSM_MODEL_SUBSTRINGS):
         try:
             import mamba_ssm  # noqa: F401
 
             logger.info("mamba-ssm already installed")
         except ImportError:
-            logger.info(
-                "SSM model detected — installing mamba-ssm and causal-conv1d (this may take several minutes)..."
-            )
-            _send_status(
-                event_queue, "Installing mamba-ssm (first time only, ~7 min)..."
-            )
-            import subprocess as _sp
-
-            # --no-build-isolation: compile against current torch (no version conflicts)
-            # --no-deps: don't pull in torch/transformers/triton (already installed)
-            for _pkg in ["causal_conv1d", "mamba_ssm"]:
-                _r = _sp.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "pip",
-                        "install",
-                        "--no-build-isolation",
-                        "--no-deps",
-                        "--no-cache-dir",
-                        _pkg,
-                    ],
-                    stdout = _sp.PIPE,
-                    stderr = _sp.STDOUT,
-                    text = True,
+            if os.environ.get(
+                "UNSLOTH_STUDIO_ALLOW_RUNTIME_SSM_INSTALL", ""
+            ).strip().lower() in ("1", "true"):
+                logger.info(
+                    "SSM model detected — installing pinned mamba-ssm/causal-conv1d "
+                    "(this may take several minutes)..."
                 )
-                if _r.returncode != 0:
-                    logger.error("Failed to install %s:\n%s", _pkg, _r.stdout)
-                else:
-                    logger.info("Installed %s successfully", _pkg)
-            logger.info("mamba-ssm installation complete")
+                _send_status(
+                    event_queue, "Installing mamba-ssm (first time only, ~7 min)..."
+                )
+                import subprocess as _sp
+
+                # --no-build-isolation: compile against current torch (no version conflicts)
+                # --no-deps: don't pull in torch/transformers/triton (already installed)
+                for _pkg in _SSM_PACKAGE_SPECS:
+                    _r = _sp.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "pip",
+                            "install",
+                            "--no-build-isolation",
+                            "--no-deps",
+                            "--no-cache-dir",
+                            _pkg,
+                        ],
+                        stdout = _sp.PIPE,
+                        stderr = _sp.STDOUT,
+                        text = True,
+                    )
+                    if _r.returncode != 0:
+                        logger.error("Failed to install %s:\n%s", _pkg, _r.stdout)
+                    else:
+                        logger.info("Installed %s successfully", _pkg)
+                logger.info("mamba-ssm installation complete")
+            else:
+                logger.warning(
+                    "SSM model detected but mamba-ssm/causal-conv1d are not "
+                    "installed. Pre-install them in the training environment, or "
+                    "set UNSLOTH_STUDIO_ALLOW_RUNTIME_SSM_INSTALL=1 to opt into a "
+                    "pinned runtime install."
+                )
+                _send_status(
+                    event_queue,
+                    "mamba-ssm/causal-conv1d are not installed — pre-install them "
+                    "in the training environment for this model architecture.",
+                )
 
     # ── 1c. Set fork start method so dataset.map() can multiprocess ──
     # The parent launched us via spawn (clean process), but the compiled
