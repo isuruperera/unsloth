@@ -1,0 +1,45 @@
+name: Tests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Importing `unsloth` requires a CUDA/ROCm/XPU device (it raises at import
+  # time otherwise), and most of tests/ trains or merges real models via the
+  # Hugging Face Hub. These two files are the only ones that avoid both by
+  # loading their target module directly instead of importing the `unsloth`
+  # package. Everything else needs a GPU runner and is out of scope here.
+  core-cpu-tests:
+    name: Core (CPU-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install pytest packaging
+      - name: Run CPU-safe unit tests
+        run: pytest tests/test_raw_text.py tests/utils/test_trunc_normal_patch.py -v
+
+  studio-backend-tests:
+    name: Studio backend (CPU-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install pytest structlog fastapi
+      - name: Run backend unit tests
+        run: pytest studio/backend/tests/ -v

@@ -21,6 +21,7 @@ import platform
 from unittest.mock import patch, MagicMock
 
 import pytest
+from structlog.testing import capture_logs
 
 # --- Conditional framework imports ---
 try:
@@ -285,7 +286,7 @@ class TestLogGpuMemory:
     def test_does_not_raise(self):
         log_gpu_memory("test")
 
-    def test_logs_gpu_info_when_available(self, caplog):
+    def test_logs_gpu_info_when_available(self):
         fake_info = {
             "available": True,
             "backend": "cuda",
@@ -295,35 +296,33 @@ class TestLogGpuMemory:
             "utilization_pct": 12.5,
             "free_gb": 14.0,
         }
-        import structlog
-        from loggers import get_logger
-
+        # caplog hooks stdlib logging, but the app's structlog is configured
+        # with PrintLoggerFactory (writes straight to stdout) — use structlog's
+        # own capture helper instead, which intercepts regardless of factory.
         with (
             patch(
                 "utils.hardware.hardware.get_gpu_memory_info", return_value = fake_info
             ),
-            caplog.at_level(logging.INFO, logger = "utils.hardware.hardware"),
+            capture_logs() as logs,
         ):
             log_gpu_memory("unit-test")
 
-        assert "unit-test" in caplog.text
-        assert "CUDA" in caplog.text
-        assert "FakeGPU" in caplog.text
+        events = [entry["event"] for entry in logs]
+        assert any("unit-test" in e and "CUDA" in e and "FakeGPU" in e for e in events)
 
-    def test_logs_cpu_fallback_when_no_gpu(self, caplog):
+    def test_logs_cpu_fallback_when_no_gpu(self):
         fake_info = {"available": False, "backend": "cpu"}
-        import structlog
-        from loggers import get_logger
 
         with (
             patch(
                 "utils.hardware.hardware.get_gpu_memory_info", return_value = fake_info
             ),
-            caplog.at_level(logging.INFO, logger = "utils.hardware.hardware"),
+            capture_logs() as logs,
         ):
             log_gpu_memory("cpu-test")
 
-        assert "No GPU available" in caplog.text
+        events = [entry["event"] for entry in logs]
+        assert any("No GPU available" in e for e in events)
 
 
 # ========== format_error_message() ==========
