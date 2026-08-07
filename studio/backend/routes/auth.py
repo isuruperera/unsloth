@@ -24,6 +24,9 @@ from auth.authentication import (
 )
 
 router = APIRouter()
+_INCORRECT_PASSWORD_DETAIL = (
+    "Incorrect password. Run 'unsloth studio reset-password' in your terminal to reset it."
+)
 
 
 @router.get("/status", response_model = AuthStatusResponse)
@@ -54,14 +57,20 @@ async def login(payload: AuthLoginRequest) -> Token:
     if record is None:
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
-            detail = "Incorrect password. Run 'unsloth studio reset-password' in your terminal to reset it.",
+            detail = _INCORRECT_PASSWORD_DETAIL,
         )
 
     salt, pwd_hash, _jwt_secret, must_change_password = record
     if not hashing.verify_password(payload.password, salt, pwd_hash):
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
-            detail = "Incorrect password. Run 'unsloth studio reset-password' in your terminal to reset it.",
+            detail = _INCORRECT_PASSWORD_DETAIL,
+        )
+
+    if must_change_password and not storage.is_bootstrap_active(payload.username):
+        raise HTTPException(
+            status_code = status.HTTP_401_UNAUTHORIZED,
+            detail = _INCORRECT_PASSWORD_DETAIL,
         )
 
     access_token = create_access_token(subject = payload.username)
