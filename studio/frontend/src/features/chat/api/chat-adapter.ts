@@ -258,7 +258,6 @@ async function autoLoadSmallestModel(): Promise<boolean> {
               load_in_4bit: true,
               is_lora: false,
               gguf_variant: variant.quant,
-              trust_remote_code: false,
             });
             useChatRuntimeStore.getState().setCheckpoint(repo.repo_id, variant.quant);
             const store = useChatRuntimeStore.getState();
@@ -309,7 +308,6 @@ async function autoLoadSmallestModel(): Promise<boolean> {
             load_in_4bit: true,
             is_lora: false,
             gguf_variant: null,
-            trust_remote_code: false,
           });
           useChatRuntimeStore.getState().setCheckpoint(repo.repo_id);
           const store = useChatRuntimeStore.getState();
@@ -346,7 +344,6 @@ async function autoLoadSmallestModel(): Promise<boolean> {
         load_in_4bit: true,
         is_lora: false,
         gguf_variant: "UD-Q4_K_XL",
-        trust_remote_code: false,
       });
       useChatRuntimeStore.getState().setCheckpoint("unsloth/Qwen3.5-4B-GGUF", "UD-Q4_K_XL");
       const store = useChatRuntimeStore.getState();

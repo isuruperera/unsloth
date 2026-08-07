@@ -146,10 +146,6 @@ function mergeRecommendedInference(
     minP: toFiniteNumber(inference?.min_p) ?? current.minP,
     presencePenalty:
       toFiniteNumber(inference?.presence_penalty) ?? current.presencePenalty,
-    trustRemoteCode:
-      typeof inference?.trust_remote_code === "boolean"
-        ? inference.trust_remote_code
-        : current.trustRemoteCode,
   };
 }
 
@@ -379,7 +375,6 @@ export function useChatModelRuntime() {
               load_in_4bit: true,
               is_lora: isLora,
               gguf_variant: ggufVariant ?? null,
-              trust_remote_code: paramsBeforeLoad.trustRemoteCode ?? false,
               chat_template_override: chatTemplateOverride,
               cache_type_kv: kvCacheDtype,
             });

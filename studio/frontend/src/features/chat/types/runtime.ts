@@ -12,8 +12,6 @@ export interface InferenceParams {
   maxTokens: number;
   systemPrompt: string;
   checkpoint: string;
-  /** Allow loading models with custom code (e.g. NVIDIA Nemotron). Only enable for repos you trust. */
-  trustRemoteCode?: boolean;
 }
 
 export const DEFAULT_INFERENCE_PARAMS: InferenceParams = {
@@ -27,7 +25,6 @@ export const DEFAULT_INFERENCE_PARAMS: InferenceParams = {
   maxTokens: 8192,
   systemPrompt: "",
   checkpoint: "",
-  trustRemoteCode: false,
 };
 
 export interface ChatModelSummary {
