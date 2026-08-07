@@ -117,7 +117,7 @@ def _clean_relative_path(
     path_value: str, *, strip_prefixes: tuple[str, ...] = ()
 ) -> Path:
     path = Path(path_value).expanduser()
-    parts = [part for part in path.parts if part not in ("", ".")]
+    parts = [part for part in path.parts if part not in ("", ".", "..")]
     while parts and parts[0] in strip_prefixes:
         parts = parts[1:]
     return Path(*parts) if parts else Path()
@@ -134,10 +134,24 @@ def resolve_under_root(
 
     path = Path(str(path_value).strip()).expanduser()
     if path.is_absolute():
-        return path
+        resolved_root = Path(os.path.normpath(str(root)))
+        resolved_path = Path(os.path.normpath(str(path)))
+        if (
+            resolved_path == resolved_root
+            or resolved_path.is_relative_to(resolved_root)
+        ):
+            candidate = resolved_path
+        else:
+            raise ValueError(f"path must stay within {root}")
+    else:
+        cleaned = _clean_relative_path(str(path), strip_prefixes = strip_prefixes)
+        candidate = root / cleaned
 
-    cleaned = _clean_relative_path(str(path), strip_prefixes = strip_prefixes)
-    return root / cleaned
+    resolved = Path(os.path.normpath(str(candidate)))
+    resolved_root = Path(os.path.normpath(str(root)))
+    if resolved != resolved_root and not resolved.is_relative_to(resolved_root):
+        raise ValueError(f"path must stay within {root}")
+    return resolved
 
 
 def resolve_output_dir(path_value: str | None = None) -> Path:
