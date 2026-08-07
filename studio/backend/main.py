@@ -272,7 +272,7 @@ def _strip_crossorigin(html_bytes: bytes) -> bytes:
     return html.encode("utf-8")
 
 
-def _inject_bootstrap(html_bytes: bytes, app: FastAPI) -> bytes:
+def _inject_bootstrap(html_bytes: bytes) -> bytes:
     """Inject bootstrap credentials into HTML when password change is required.
 
     The script tag is only injected while the default admin account still
@@ -284,7 +284,7 @@ def _inject_bootstrap(html_bytes: bytes, app: FastAPI) -> bytes:
     if not storage.requires_password_change(storage.DEFAULT_ADMIN_USERNAME):
         return html_bytes
 
-    bootstrap_pw = getattr(app.state, "bootstrap_password", None)
+    bootstrap_pw = storage.get_bootstrap_password()
     if not bootstrap_pw:
         return html_bytes
 
@@ -314,7 +314,7 @@ def setup_frontend(app: FastAPI, build_path: Path):
     async def serve_root():
         content = (build_path / "index.html").read_bytes()
         content = _strip_crossorigin(content)
-        content = _inject_bootstrap(content, app)
+        content = _inject_bootstrap(content)
         return Response(
             content = content,
             media_type = "text/html",
@@ -338,7 +338,7 @@ def setup_frontend(app: FastAPI, build_path: Path):
         # Serve index.html as bytes — avoids Content-Length mismatch
         content = (build_path / "index.html").read_bytes()
         content = _strip_crossorigin(content)
-        content = _inject_bootstrap(content, app)
+        content = _inject_bootstrap(content)
         return Response(
             content = content,
             media_type = "text/html",

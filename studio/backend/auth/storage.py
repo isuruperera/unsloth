@@ -8,7 +8,7 @@ SQLite storage for authentication data (user credentials + JWT secret).
 import hashlib
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from utils.paths import auth_db_path, ensure_dir
@@ -22,6 +22,7 @@ _BOOTSTRAP_PW_PATH = DB_PATH.parent / ".bootstrap_password"
 
 # In-process cache so we don't re-read the file on every HTML serve.
 _bootstrap_password: Optional[str] = None
+_BOOTSTRAP_LIFETIME = timedelta(minutes = 15)
 
 
 def generate_bootstrap_password() -> str:
@@ -59,8 +60,22 @@ def generate_bootstrap_password() -> str:
 
 
 def get_bootstrap_password() -> Optional[str]:
-    """Return the cached bootstrap password, or None if not yet generated."""
-    return _bootstrap_password
+    """Return the bootstrap password while its lifetime remains active."""
+    global _bootstrap_password
+
+    if not is_bootstrap_active(DEFAULT_ADMIN_USERNAME):
+        clear_bootstrap_password()
+        return None
+
+    if _bootstrap_password is not None:
+        return _bootstrap_password
+
+    if _BOOTSTRAP_PW_PATH.is_file():
+        _bootstrap_password = _BOOTSTRAP_PW_PATH.read_text().strip()
+        if _bootstrap_password:
+            return _bootstrap_password
+
+    return None
 
 
 def clear_bootstrap_password() -> None:
@@ -89,7 +104,8 @@ def get_connection() -> sqlite3.Connection:
             password_salt TEXT NOT NULL,
             password_hash TEXT NOT NULL,
             jwt_secret TEXT NOT NULL,
-            must_change_password INTEGER NOT NULL DEFAULT 0
+            must_change_password INTEGER NOT NULL DEFAULT 0,
+            bootstrap_expires_at TEXT
         );
         """
     )
@@ -108,6 +124,8 @@ def get_connection() -> sqlite3.Connection:
         conn.execute(
             "ALTER TABLE auth_user ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
         )
+    if "bootstrap_expires_at" not in columns:
+        conn.execute("ALTER TABLE auth_user ADD COLUMN bootstrap_expires_at TEXT")
     conn.commit()
     return conn
 
@@ -127,6 +145,7 @@ def create_initial_user(
     jwt_secret: str,
     *,
     must_change_password: bool = False,
+    bootstrap_expires_at: Optional[str] = None,
 ) -> None:
     """
     Create the initial admin user in the database.
@@ -145,11 +164,19 @@ def create_initial_user(
                 password_salt,
                 password_hash,
                 jwt_secret,
-                must_change_password
+                must_change_password,
+                bootstrap_expires_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (username, salt, pwd_hash, jwt_secret, int(must_change_password)),
+            (
+                username,
+                salt,
+                pwd_hash,
+                jwt_secret,
+                int(must_change_password),
+                bootstrap_expires_at,
+            ),
         )
         conn.commit()
     finally:
@@ -224,6 +251,28 @@ def get_all_jwt_secrets() -> list:
         conn.close()
 
 
+def is_bootstrap_active(username: str) -> bool:
+    """Return whether the default-admin bootstrap credential is still active."""
+    if username != DEFAULT_ADMIN_USERNAME:
+        return False
+
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            SELECT 1 FROM auth_user
+            WHERE username = ?
+              AND must_change_password = 1
+              AND bootstrap_expires_at IS NOT NULL
+              AND bootstrap_expires_at > ?
+            """,
+            (username, datetime.now(timezone.utc).isoformat()),
+        )
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
 def requires_password_change(username: str) -> bool:
     """Return whether the user must change the seeded default password."""
     conn = get_connection()
@@ -263,6 +312,9 @@ def ensure_default_admin() -> bool:
     Uses a randomly generated diceware passphrase as the bootstrap password.
     Returns True when the default admin was created in this call.
     """
+    if get_user_and_secret(DEFAULT_ADMIN_USERNAME) is not None:
+        return False
+
     bootstrap_pw = generate_bootstrap_password()
     try:
         create_initial_user(
@@ -270,9 +322,13 @@ def ensure_default_admin() -> bool:
             password = bootstrap_pw,
             jwt_secret = secrets.token_urlsafe(64),
             must_change_password = True,
+            bootstrap_expires_at = (
+                datetime.now(timezone.utc) + _BOOTSTRAP_LIFETIME
+            ).isoformat(),
         )
         return True
     except sqlite3.IntegrityError:
+        clear_bootstrap_password()
         return False
 
 
