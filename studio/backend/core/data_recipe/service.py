@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import base64
 import io
+import ipaddress
 import os
+import socket
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .jsonable import to_jsonable
 from .local_callable_validators import (
@@ -130,6 +133,61 @@ def _apply_data_designer_image_context_patch() -> None:
     _IMAGE_CONTEXT_PATCHED = True
 
 
+def _is_globally_routable_address(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+
+    return not (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _allow_private_provider_endpoints() -> bool:
+    raw_value = os.getenv("UNSLOTH_ALLOW_PRIVATE_PROVIDER_ENDPOINTS", "")
+    return raw_value.strip().lower() in {"1", "true", "yes"}
+
+
+def _validate_provider_endpoint(endpoint: Any, *, provider_name: str) -> str:
+    error = ValueError(f"Provider '{provider_name}' endpoint is not allowed.")
+
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise error
+
+    parsed = urlsplit(endpoint)
+    if parsed.scheme not in {"http", "https"}:
+        raise error
+
+    host = parsed.hostname
+    if not host:
+        raise error
+
+    if not _allow_private_provider_endpoints():
+        try:
+            addr_info = socket.getaddrinfo(host, parsed.port)
+        except (socket.gaierror, ValueError):
+            raise error from None
+
+        candidates: list[str] = [info[4][0] for info in addr_info]
+        candidates.append(host)
+
+        for candidate in candidates:
+            try:
+                address = ipaddress.ip_address(candidate)
+            except ValueError:
+                continue
+            if not _is_globally_routable_address(address):
+                raise error
+
+    return endpoint
+
+
 def build_model_providers(recipe: dict[str, Any]):
     from data_designer.config.models import ModelProvider
 
@@ -139,10 +197,13 @@ def build_model_providers(recipe: dict[str, Any]):
         api_key_env = provider.get("api_key_env")
         if not api_key and api_key_env:
             api_key = os.getenv(api_key_env)
+        endpoint = _validate_provider_endpoint(
+            provider.get("endpoint"), provider_name = str(provider.get("name", ""))
+        )
         providers.append(
             ModelProvider(
                 name = provider["name"],
-                endpoint = provider["endpoint"],
+                endpoint = endpoint,
                 provider_type = provider.get("provider_type", "openai"),
                 api_key = api_key,
                 extra_headers = provider.get("extra_headers"),
@@ -208,10 +269,13 @@ def build_mcp_providers(
             api_key_env = provider.get("api_key_env")
             if not api_key and api_key_env:
                 api_key = os.getenv(str(api_key_env))
+            endpoint = _validate_provider_endpoint(
+                provider.get("endpoint"), provider_name = str(provider.get("name", ""))
+            )
             providers.append(
                 MCPProvider(
                     name = str(provider.get("name", "")),
-                    endpoint = str(provider.get("endpoint", "")),
+                    endpoint = endpoint,
                     provider_type = str(provider_type),
                     api_key = str(api_key) if api_key else None,
                 )
