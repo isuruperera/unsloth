@@ -89,6 +89,7 @@ class TrainingBackend:
 
         # Job metadata
         self.current_job_id: Optional[str] = None
+        self.current_owner: Optional[str] = None
         self._output_dir: Optional[str] = None
 
         logger.info("TrainingBackend initialized (subprocess mode)")
