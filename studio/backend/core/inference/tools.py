@@ -4,7 +4,7 @@
 """
 Tool definitions and executors for LLM tool calling.
 
-Supports web search (DuckDuckGo), Python code execution, and terminal commands.
+Supports web search (DuckDuckGo) and Python code execution.
 """
 
 import ast
@@ -23,7 +23,6 @@ logger = get_logger(__name__)
 
 _EXEC_TIMEOUT = 300  # 5 minutes
 _MAX_OUTPUT_CHARS = 8000  # truncate long output
-_BASH_BLOCKED_WORDS = {"rm", "sudo", "dd", "chmod", "mkfs", "shutdown", "reboot"}
 
 # Per-session working directories so each chat thread gets its own sandbox.
 # Falls back to a shared ~/studio_sandbox/ for API callers without a session_id.
@@ -89,25 +88,7 @@ PYTHON_TOOL = {
     },
 }
 
-TERMINAL_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "terminal",
-        "description": "Execute a terminal command and return stdout/stderr.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The command to run",
-                }
-            },
-            "required": ["command"],
-        },
-    },
-}
-
-ALL_TOOLS = [WEB_SEARCH_TOOL, PYTHON_TOOL, TERMINAL_TOOL]
+ALL_TOOLS = [WEB_SEARCH_TOOL, PYTHON_TOOL]
 
 
 _TIMEOUT_UNSET = object()
@@ -135,10 +116,6 @@ def execute_tool(
     if name == "python":
         return _python_exec(
             arguments.get("code", ""), cancel_event, effective_timeout, session_id
-        )
-    if name == "terminal":
-        return _bash_exec(
-            arguments.get("command", ""), cancel_event, effective_timeout, session_id
         )
     return f"Unknown tool: {name}"
 
@@ -442,54 +419,3 @@ def _python_exec(
                 os.unlink(tmp_path)
             except OSError:
                 pass
-
-
-def _bash_exec(
-    command: str,
-    cancel_event = None,
-    timeout: int = _EXEC_TIMEOUT,
-    session_id: str | None = None,
-) -> str:
-    """Execute a bash command in a subprocess sandbox."""
-    if not command or not command.strip():
-        return "No command provided."
-
-    # Block dangerous commands
-    tokens = set(command.lower().split())
-    blocked = tokens & _BASH_BLOCKED_WORDS
-    if blocked:
-        return f"Blocked command(s) for safety: {', '.join(sorted(blocked))}"
-
-    try:
-        workdir = _get_workdir(session_id)
-        proc = subprocess.Popen(
-            ["bash", "-c", command],
-            stdout = subprocess.PIPE,
-            stderr = subprocess.STDOUT,
-            text = True,
-            cwd = workdir,
-        )
-
-        if cancel_event is not None:
-            watcher = threading.Thread(
-                target = _cancel_watcher, args = (proc, cancel_event), daemon = True
-            )
-            watcher.start()
-
-        try:
-            output, _ = proc.communicate(timeout = timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
-            return _truncate(f"Execution timed out after {timeout} seconds.")
-
-        if cancel_event is not None and cancel_event.is_set():
-            return "Execution cancelled."
-
-        result = output or ""
-        if proc.returncode != 0:
-            result = f"Exit code {proc.returncode}:\n{result}"
-        return _truncate(result) if result.strip() else "(no output)"
-
-    except Exception as e:
-        return f"Execution error: {e}"
