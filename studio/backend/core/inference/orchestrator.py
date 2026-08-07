@@ -75,6 +75,7 @@ class InferenceOrchestrator:
 
         # Local state mirrors (updated from subprocess responses)
         self.active_model_name: Optional[str] = None
+        self.active_owner: Optional[str] = None
         self.models: dict = {}
         self.loading_models: set = set()
         self.loaded_local_models: list = []

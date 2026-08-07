@@ -365,6 +365,7 @@ async def load_model(
             )
 
         logger.info(f"Loaded model: {config.identifier}")
+        backend.active_owner = current_subject
 
         # Load inference configuration parameters
         inference_config = load_inference_config(config.identifier)

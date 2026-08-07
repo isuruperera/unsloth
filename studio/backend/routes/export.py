@@ -43,7 +43,48 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.post("/load-checkpoint", response_model = ExportOperationResponse)
+def _ensure_inference_not_owned_by_other(inf, current_subject: str) -> None:
+    """Raise 409 if the active inference session belongs to another subject."""
+    if (
+        inf.active_model_name
+        and inf.active_owner
+        and inf.active_owner != current_subject
+    ):
+        raise HTTPException(
+            status_code = 409,
+            detail = (
+                "An inference session belonging to another user is using the "
+                "GPU. Ask that user to release it before loading a checkpoint."
+            ),
+        )
+
+
+def _ensure_training_not_owned_by_other(trn, current_subject: str) -> None:
+    """Raise 409 if the active training job belongs to another subject."""
+    if (
+        trn.is_training_active()
+        and trn.current_job_owner
+        and trn.current_job_owner != current_subject
+    ):
+        raise HTTPException(
+            status_code = 409,
+            detail = (
+                "An active training job belonging to another user is using "
+                "the GPU. Ask that user to stop it before loading a checkpoint."
+            ),
+        )
+
+
+@router.post(
+    "/load-checkpoint",
+    response_model = ExportOperationResponse,
+    responses = {
+        409: {
+            "description": "An inference or training session belonging to "
+            "another user is currently active."
+        },
+    },
+)
 async def load_checkpoint(
     request: LoadCheckpointRequest,
     current_subject: str = Depends(get_current_subject),
@@ -59,10 +100,11 @@ async def load_checkpoint(
 
         # Free GPU memory: shut down any running inference/training subprocesses
         # before loading the export checkpoint (they'd compete for VRAM).
-        try:
-            from core.inference import get_inference_backend
+        from core.inference import get_inference_backend
 
-            inf = get_inference_backend()
+        inf = get_inference_backend()
+        _ensure_inference_not_owned_by_other(inf, current_subject)
+        try:
             if inf.active_model_name:
                 logger.info(
                     "Unloading inference model '%s' to free GPU memory for export",
@@ -70,14 +112,16 @@ async def load_checkpoint(
                 )
                 inf._shutdown_subprocess()
                 inf.active_model_name = None
+                inf.active_owner = None
                 inf.models.clear()
         except Exception as e:
             logger.warning("Could not unload inference model: %s", e)
 
-        try:
-            from core.training import get_training_backend
+        from core.training import get_training_backend
 
-            trn = get_training_backend()
+        trn = get_training_backend()
+        _ensure_training_not_owned_by_other(trn, current_subject)
+        try:
             if trn.is_training_active():
                 logger.info("Stopping active training to free GPU memory for export")
                 trn.stop_training()
