@@ -12,6 +12,7 @@ import os
 
 os.environ["UNSLOTH_IS_PRESENT"] = "1"
 
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,33 @@ logger = get_logger(__name__)
 
 _EXEC_TIMEOUT = 300  # 5 minutes
 _MAX_OUTPUT_CHARS = 8000  # truncate long output
-_BASH_BLOCKED_WORDS = {"rm", "sudo", "dd", "chmod", "mkfs", "shutdown", "reboot"}
+_BASH_ALLOWED_COMMANDS = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "pwd",
+        "echo",
+        "grep",
+        "find",
+        "stat",
+        "file",
+        "sort",
+        "uniq",
+        "du",
+        "df",
+        "date",
+        "which",
+        "python",
+        "python3",
+        "pip",
+        "pip3",
+        "git",
+    }
+)
+_BASH_SHELL_METACHARACTERS = set(";&|><`$(){}\n\\*!")
 
 # Per-session working directories so each chat thread gets its own sandbox.
 # Falls back to a shared ~/studio_sandbox/ for API callers without a session_id.
@@ -93,13 +120,22 @@ TERMINAL_TOOL = {
     "type": "function",
     "function": {
         "name": "terminal",
-        "description": "Execute a terminal command and return stdout/stderr.",
+        "description": (
+            "Execute a single allowlisted, non-shell command and return "
+            "stdout/stderr. Shell operators (pipes, redirection, chaining, "
+            "command substitution) are not supported."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The command to run",
+                    "description": (
+                        "A single command from a fixed allowlist, e.g. "
+                        "'ls -la'. Shell operators such as |, >, <, ;, &, "
+                        "backticks, or $() are not supported and will be "
+                        "rejected."
+                    ),
                 }
             },
             "required": ["command"],
@@ -454,16 +490,24 @@ def _bash_exec(
     if not command or not command.strip():
         return "No command provided."
 
-    # Block dangerous commands
-    tokens = set(command.lower().split())
-    blocked = tokens & _BASH_BLOCKED_WORDS
-    if blocked:
-        return f"Blocked command(s) for safety: {', '.join(sorted(blocked))}"
+    if any(ch in _BASH_SHELL_METACHARACTERS for ch in command):
+        return "Blocked: shell metacharacters are not permitted."
+
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return "Could not parse command."
+    if not argv:
+        return "Could not parse command."
+
+    program = os.path.basename(argv[0])
+    if program not in _BASH_ALLOWED_COMMANDS:
+        return f"Blocked: '{argv[0]}' is not an allowed command."
 
     try:
         workdir = _get_workdir(session_id)
         proc = subprocess.Popen(
-            ["bash", "-c", command],
+            argv,
             stdout = subprocess.PIPE,
             stderr = subprocess.STDOUT,
             text = True,
