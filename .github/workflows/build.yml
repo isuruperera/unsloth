@@ -17,7 +17,3 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.projectKey=daniel-borek-repos_unsloth
-            -Dsonar.organization=daniel-borek-repos
