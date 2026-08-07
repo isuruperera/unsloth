@@ -334,6 +334,20 @@ async def load_model(
                 except Exception as e:
                     logger.warning(f"Could not read adapter_config.json: {e}")
 
+        # trust_remote_code is decided server-side from the model's YAML
+        # defaults. A caller-supplied value is never honoured — any signed-in
+        # user could otherwise force arbitrary code execution by flipping the
+        # flag for a model reference they also control.
+        model_defaults = load_model_defaults(config.identifier)
+        allow_remote_code = bool(
+            model_defaults.get("inference", {}).get("trust_remote_code", False)
+        )
+        if request.trust_remote_code and not allow_remote_code:
+            logger.warning(
+                f"Ignoring caller-supplied trust_remote_code=True for model "
+                f"'{config.identifier}': not permitted by server-side model defaults"
+            )
+
         # Load the model in a thread so the event loop stays free
         # for download progress polling and other requests.
         success = await asyncio.to_thread(
@@ -342,24 +356,10 @@ async def load_model(
             max_seq_length = request.max_seq_length,
             load_in_4bit = load_in_4bit,
             hf_token = request.hf_token,
-            trust_remote_code = request.trust_remote_code,
+            trust_remote_code = allow_remote_code,
         )
 
         if not success:
-            # Check if YAML says this model needs trust_remote_code
-            if not request.trust_remote_code:
-                model_defaults = load_model_defaults(config.identifier)
-                yaml_trust = model_defaults.get("inference", {}).get(
-                    "trust_remote_code", False
-                )
-                if yaml_trust:
-                    raise HTTPException(
-                        status_code = 400,
-                        detail = (
-                            f"Model '{config.display_name}' requires trust_remote_code to be enabled. "
-                            f"Please enable 'Trust remote code' in Chat Settings and try again."
-                        ),
-                    )
             raise HTTPException(
                 status_code = 500, detail = f"Failed to load model: {config.display_name}"
             )
