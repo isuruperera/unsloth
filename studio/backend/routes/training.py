@@ -95,7 +95,31 @@ async def get_hardware_utilization(
     return get_gpu_utilization()
 
 
-@router.post("/start")
+def _ensure_inference_not_owned_by_other(inf_backend, current_subject: str) -> None:
+    """Raise 409 if the active inference session belongs to another subject."""
+    if (
+        inf_backend.active_model_name
+        and inf_backend.active_owner
+        and inf_backend.active_owner != current_subject
+    ):
+        raise HTTPException(
+            status_code = 409,
+            detail = (
+                "An inference session belonging to another user is using the "
+                "GPU. Ask that user to release it before starting training."
+            ),
+        )
+
+
+@router.post(
+    "/start",
+    responses = {
+        409: {
+            "description": "An inference session belonging to another user "
+            "is currently active."
+        },
+    },
+)
 async def start_training(
     request: TrainingStartRequest,
     current_subject: str = Depends(get_current_subject),
@@ -131,6 +155,8 @@ async def start_training(
                 ),
                 error = "Training already active",
             )
+
+        backend.current_job_owner = current_subject
 
         # Validate dataset paths if provided
         if request.local_datasets:
@@ -217,10 +243,11 @@ async def start_training(
 
         # Free GPU memory: shut down any running inference/export subprocesses
         # before training starts (they'd compete for VRAM otherwise)
-        try:
-            from core.inference import get_inference_backend
+        from core.inference import get_inference_backend
 
-            inf_backend = get_inference_backend()
+        inf_backend = get_inference_backend()
+        _ensure_inference_not_owned_by_other(inf_backend, current_subject)
+        try:
             if inf_backend.active_model_name:
                 logger.info(
                     "Unloading inference model '%s' to free GPU memory for training",
@@ -228,6 +255,7 @@ async def start_training(
                 )
                 inf_backend._shutdown_subprocess()
                 inf_backend.active_model_name = None
+                inf_backend.active_owner = None
                 inf_backend.models.clear()
         except Exception as e:
             logger.warning("Could not unload inference model: %s", e)
@@ -266,6 +294,8 @@ async def start_training(
             error = None,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting training: {e}", exc_info = True)
         raise HTTPException(
