@@ -104,23 +104,6 @@ def run_training_process(
         )
         return
 
-    # ── 1a. Auto-enable trust_remote_code for unsloth/* transformers 5.x models ──
-    # Some newer architectures (e.g. NemotronH) have config parsing bugs in
-    # transformers that require trust_remote_code=True as a workaround.
-    # Only auto-enable for unsloth/* prefixed models (trusted source).
-    from utils.transformers_version import needs_transformers_5
-
-    if (
-        needs_transformers_5(model_name)
-        and model_name.lower().startswith("unsloth/")
-        and not config.get("trust_remote_code", False)
-    ):
-        config["trust_remote_code"] = True
-        logger.info(
-            "Auto-enabled trust_remote_code for unsloth/* transformers 5.x model: %s",
-            model_name,
-        )
-
     # ── 1b. Auto-install mamba-ssm for SSM/hybrid models (NemotronH, Falcon-H1) ──
     _SSM_MODEL_SUBSTRINGS = ("nemotron_h", "nemotron-3-nano", "falcon_h1", "falcon-h1")
     if any(sub in model_name.lower() for sub in _SSM_MODEL_SUBSTRINGS):

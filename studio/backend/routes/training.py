@@ -201,19 +201,30 @@ async def start_training(
             "trust_remote_code": request.trust_remote_code,
         }
 
-        # Training page has no trust_remote_code toggle — the value comes from
-        # YAML model defaults applied when the user selects a model.  As a safety
-        # net, consult the YAML directly so models that need it always get it.
+        # The request's trust_remote_code value is a hard floor: YAML model
+        # defaults may never silently raise it. If the model's YAML default
+        # requires trust_remote_code but the caller did not opt in, refuse
+        # to start training instead of elevating the flag.
         if not training_kwargs["trust_remote_code"]:
             model_defaults = load_model_defaults(request.model_name)
             yaml_trust = model_defaults.get("training", {}).get(
                 "trust_remote_code", False
             )
             if yaml_trust:
-                logger.info(
-                    f"YAML config sets trust_remote_code=True for {request.model_name}"
+                logger.warning(
+                    f"Model '{request.model_name}' requires trust_remote_code "
+                    f"but the request set it to False"
                 )
-                training_kwargs["trust_remote_code"] = True
+                return TrainingJobResponse(
+                    job_id = job_id,
+                    status = "error",
+                    message = (
+                        f"Model '{request.model_name}' requires trust_remote_code "
+                        f"to be enabled. Enable 'Trust remote code' in the request "
+                        f"and retry."
+                    ),
+                    error = "trust_remote_code_required",
+                )
 
         # Free GPU memory: shut down any running inference/export subprocesses
         # before training starts (they'd compete for VRAM otherwise)
