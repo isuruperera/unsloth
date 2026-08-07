@@ -386,7 +386,7 @@ def load_model_config(
     model_name: str,
     use_auth: bool = False,
     token: Optional[str] = None,
-    trust_remote_code: bool = True,
+    trust_remote_code: bool = False,
 ):
     """
     Load model config with optional authentication control.
@@ -441,6 +441,7 @@ venv_t5 = sys.argv[1]
 backend_dir = sys.argv[2]
 model_name = sys.argv[3]
 token = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "" else None
+trust = len(sys.argv) > 5 and sys.argv[5] == "1"
 
 sys.path.insert(0, venv_t5)
 if backend_dir not in sys.path:
@@ -448,7 +449,7 @@ if backend_dir not in sys.path:
 
 try:
     from transformers import AutoConfig
-    kwargs = {"trust_remote_code": True}
+    kwargs = {"trust_remote_code": trust}
     if token:
         kwargs["token"] = token
     config = AutoConfig.from_pretrained(model_name, **kwargs)
@@ -481,6 +482,14 @@ except Exception as exc:
 """
 
 
+def _is_trusted_model_source(model_name: str) -> bool:
+    """Only first-party unsloth/* Hub repos may execute remote code during
+    read-only config inspection. Local paths and third-party repos never do."""
+    if is_local_path(model_name):
+        return False
+    return model_name.lower().startswith("unsloth/")
+
+
 def _is_vision_model_subprocess(
     model_name: str, hf_token: Optional[str] = None
 ) -> bool:
@@ -502,6 +511,7 @@ def _is_vision_model_subprocess(
                 _BACKEND_DIR,
                 model_name,
                 token_arg,
+                "1" if _is_trusted_model_source(model_name) else "0",
             ],
             capture_output = True,
             text = True,
@@ -571,7 +581,12 @@ def is_vision_model(model_name: str, hf_token: Optional[str] = None) -> bool:
         return _is_vision_model_subprocess(model_name, hf_token = hf_token)
 
     try:
-        config = load_model_config(model_name, use_auth = True, token = hf_token)
+        config = load_model_config(
+            model_name,
+            use_auth = True,
+            token = hf_token,
+            trust_remote_code = _is_trusted_model_source(model_name),
+        )
 
         # Exclude audio-only models that share ForConditionalGeneration suffix
         # (e.g. CsmForConditionalGeneration, WhisperForConditionalGeneration)

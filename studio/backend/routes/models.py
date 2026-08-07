@@ -431,7 +431,11 @@ async def get_model_config(
             try:
                 from transformers import AutoConfig as _AutoConfig
 
-                _trust = model_name.lower().startswith("unsloth/")
+                _trust = (
+                    not is_local_path(model_name)
+                    and _is_valid_repo_id(model_name)
+                    and model_name.lower().startswith("unsloth/")
+                )
                 _ac = _AutoConfig.from_pretrained(
                     model_name, trust_remote_code = _trust, token = hf_token
                 )
