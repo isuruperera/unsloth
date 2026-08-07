@@ -33,6 +33,13 @@ _OXC_TOOL_DIR = Path(__file__).resolve().parent / "oxc-validator"
 _OXC_RUNNER_PATH = _OXC_TOOL_DIR / "validate.mjs"
 
 
+class UnsupportedLocalCallableValidatorError(ValueError):
+    """Raised when a local_callable validator spec is not an allowlisted OXC marker."""
+
+
+_UNSUPPORTED_VALIDATOR_MESSAGE = "Unsupported local_callable validator configuration."
+
+
 @dataclass(frozen = True)
 class OxcLocalCallableValidatorSpec:
     name: str
@@ -119,16 +126,16 @@ def _parse_oxc_spec(
 
     params = column.get("validator_params")
     if not isinstance(params, dict):
-        return None
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
 
     fn_raw = params.get("validation_function")
     fn_name = fn_raw.strip() if isinstance(fn_raw, str) else ""
     if not fn_name.startswith(OXC_VALIDATION_FN_MARKER):
-        return None
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
 
     name = str(column.get("name") or "").strip()
     if not name:
-        return None
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
 
     target_columns_raw = column.get("target_columns")
     target_columns = (
@@ -141,7 +148,7 @@ def _parse_oxc_spec(
         else []
     )
     if not target_columns:
-        return None
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
 
     code_lang, validation_mode, code_shape = _parse_oxc_validation_marker(fn_name)
     batch_size = _parse_batch_size(column.get("batch_size"))
@@ -167,18 +174,40 @@ def _parse_batch_size(value: Any) -> int:
 
 
 def _parse_oxc_validation_marker(fn_name: str) -> tuple[str, str, str]:
+    if fn_name == OXC_VALIDATION_FN_MARKER:
+        return "javascript", "syntax", "auto"
+
     marker = f"{OXC_VALIDATION_FN_MARKER}:"
     if not fn_name.startswith(marker):
-        return "javascript", "syntax", "auto"
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
+
     suffix = fn_name[len(marker) :]
     parts = [part.strip() for part in suffix.split(":") if part.strip()]
-    if len(parts) < 2:
+    if len(parts) > 3:
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
+    if not parts:
         return "javascript", "syntax", "auto"
-    code_lang = parts[0] if parts[0] in _OXC_LANG_TO_NODE_LANG else "javascript"
-    mode = parts[1] if parts[1] in _OXC_VALIDATION_MODES else "syntax"
-    code_shape = (
-        parts[2] if len(parts) >= 3 and parts[2] in _OXC_CODE_SHAPES else "auto"
-    )
+
+    if parts[0] not in _OXC_LANG_TO_NODE_LANG:
+        raise UnsupportedLocalCallableValidatorError(_UNSUPPORTED_VALIDATOR_MESSAGE)
+    code_lang = parts[0]
+
+    mode = "syntax"
+    if len(parts) >= 2:
+        if parts[1] not in _OXC_VALIDATION_MODES:
+            raise UnsupportedLocalCallableValidatorError(
+                _UNSUPPORTED_VALIDATOR_MESSAGE
+            )
+        mode = parts[1]
+
+    code_shape = "auto"
+    if len(parts) == 3:
+        if parts[2] not in _OXC_CODE_SHAPES:
+            raise UnsupportedLocalCallableValidatorError(
+                _UNSUPPORTED_VALIDATOR_MESSAGE
+            )
+        code_shape = parts[2]
+
     return code_lang, mode, code_shape
 
 
