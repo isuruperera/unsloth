@@ -552,7 +552,7 @@ export function createOpenAIStreamAdapter(): ChatModelAdapter {
                   enable_tools: true,
                   enabled_tools: [
                     ...(toolsEnabled ? ["web_search"] : []),
-                    ...(codeToolsEnabled ? ["python", "terminal"] : []),
+                    ...(codeToolsEnabled ? ["python"] : []),
                   ],
                   auto_heal_tool_calls: useChatRuntimeStore.getState().autoHealToolCalls,
                   max_tool_calls_per_message: useChatRuntimeStore.getState().maxToolCallsPerMessage,

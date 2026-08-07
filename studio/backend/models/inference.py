@@ -316,7 +316,7 @@ class ChatCompletionRequest(BaseModel):
     )
     enabled_tools: Optional[list[str]] = Field(
         None,
-        description = "[x-unsloth] List of enabled tool names (e.g. ['web_search', 'python', 'terminal']). If None, all tools are enabled.",
+        description = "[x-unsloth] List of enabled tool names (e.g. ['web_search', 'python']). If None, all tools are enabled.",
     )
     auto_heal_tool_calls: Optional[bool] = Field(
         True,
