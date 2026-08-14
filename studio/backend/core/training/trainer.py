@@ -2522,7 +2522,7 @@ class UnslothTrainer:
                     custom_format_mapping = custom_format_mapping,
                 )
                 eval_dataset = eval_info["dataset"]
-                logger.info(f"Eval dataset formatted successfully\n")
+                logger.info("Eval dataset formatted successfully\n")
             elif eval_enabled and not has_separate_eval_source:
                 # No separate eval source — split the already-formatted dataset
                 formatted_dataset = dataset_info["dataset"]
