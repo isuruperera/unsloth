@@ -66,6 +66,7 @@ import base64
 import numpy as np
 
 router = APIRouter()
+openai_router = APIRouter()
 logger = get_logger(__name__)
 
 
@@ -816,6 +817,7 @@ def _extract_content_parts(
 
 
 @router.post("/chat/completions")
+@openai_router.post("/chat/completions")
 async def openai_chat_completions(
     payload: ChatCompletionRequest,
     request: Request,
@@ -1483,6 +1485,7 @@ async def openai_chat_completions(
 
 
 @router.get("/models")
+@openai_router.get("/models")
 async def openai_list_models(
     current_subject: str = Depends(get_current_subject),
 ):
