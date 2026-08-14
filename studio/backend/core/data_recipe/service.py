@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import base64
 import io
+import ipaddress
 import os
+import socket
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .jsonable import to_jsonable
 from .local_callable_validators import (
@@ -130,6 +133,66 @@ def _apply_data_designer_image_context_patch() -> None:
     _IMAGE_CONTEXT_PATCHED = True
 
 
+def _allowed_provider_hosts() -> set[str]:
+    raw = os.getenv("UNSLOTH_ALLOWED_PROVIDER_HOSTS", "")
+    return {entry.strip().lower() for entry in raw.split(",") if entry.strip()}
+
+
+def _is_disallowed_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _validate_provider_endpoint(endpoint: Any, *, provider_name: str) -> str:
+    endpoint_str = str(endpoint or "").strip()
+    if not endpoint_str:
+        raise ValueError(f"Provider '{provider_name}' is missing an endpoint URL.")
+
+    parts = urlsplit(endpoint_str)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+        raise ValueError(
+            f"Provider '{provider_name}' endpoint must be an http or https URL "
+            "with a host."
+        )
+
+    hostname = parts.hostname.lower()
+    allowed_hosts = _allowed_provider_hosts()
+    if hostname in allowed_hosts or (
+        parts.port and f"{hostname}:{parts.port}" in allowed_hosts
+    ):
+        return endpoint_str
+
+    try:
+        candidate = ipaddress.ip_address(hostname)
+        addresses = [candidate]
+    except ValueError:
+        try:
+            resolved = socket.getaddrinfo(
+                hostname, parts.port or None, proto = socket.IPPROTO_TCP
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"Could not resolve provider endpoint host '{hostname}'."
+            ) from exc
+        addresses = [ipaddress.ip_address(info[4][0]) for info in resolved]
+
+    if any(_is_disallowed_ip(address) for address in addresses):
+        raise ValueError(
+            f"Provider '{provider_name}' endpoint resolves to a non-public address; "
+            "add the host to UNSLOTH_ALLOWED_PROVIDER_HOSTS to allow it."
+        )
+
+    return endpoint_str
+
+
 def build_model_providers(recipe: dict[str, Any]):
     from data_designer.config.models import ModelProvider
 
@@ -142,7 +205,10 @@ def build_model_providers(recipe: dict[str, Any]):
         providers.append(
             ModelProvider(
                 name = provider["name"],
-                endpoint = provider["endpoint"],
+                endpoint = _validate_provider_endpoint(
+                    provider.get("endpoint"),
+                    provider_name = str(provider.get("name", "")),
+                ),
                 provider_type = provider.get("provider_type", "openai"),
                 api_key = api_key,
                 extra_headers = provider.get("extra_headers"),
@@ -211,7 +277,10 @@ def build_mcp_providers(
             providers.append(
                 MCPProvider(
                     name = str(provider.get("name", "")),
-                    endpoint = str(provider.get("endpoint", "")),
+                    endpoint = _validate_provider_endpoint(
+                        provider.get("endpoint"),
+                        provider_name = str(provider.get("name", "")),
+                    ),
                     provider_type = str(provider_type),
                     api_key = str(api_key) if api_key else None,
                 )
