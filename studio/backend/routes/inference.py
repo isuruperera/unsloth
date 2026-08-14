@@ -1063,6 +1063,7 @@ async def openai_chat_completions(
                     if payload.tool_call_timeout is not None
                     else 300,
                     session_id = payload.session_id,
+                    current_subject = current_subject,
                 )
 
             _tool_sentinel = object()
