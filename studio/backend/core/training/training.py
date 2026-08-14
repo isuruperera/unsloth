@@ -478,10 +478,10 @@ class TrainingBackend:
         while True:
             try:
                 events.append(q.get_nowait())
-            except queue.Empty:
-                return events
-            except (EOFError, OSError, ValueError):
-                return events
+            except (queue.Empty, EOFError, OSError, ValueError):
+                break
+
+        return events
 
     # ------------------------------------------------------------------
     # Plot generation (unchanged from original)
