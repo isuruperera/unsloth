@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -117,8 +117,8 @@ def job_analysis(job_id: str):
 @router.get("/jobs/{job_id}/dataset")
 def job_dataset(
     job_id: str,
-    limit: int = Query(default = 20, ge = 1, le = 500),
-    offset: int = Query(default = 0, ge = 0),
+    limit: Annotated[int, Query(ge = 1, le = 500)] = 20,
+    offset: Annotated[int, Query(ge = 0)] = 0,
 ):
     mgr = get_job_manager()
     result = mgr.get_dataset(job_id, limit = limit, offset = offset)
