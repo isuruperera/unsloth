@@ -19,7 +19,7 @@ from models.data_recipe import (
 router = APIRouter()
 
 
-@router.post("/mcp/tools", response_model = McpToolsListResponse)
+@router.post("/mcp/tools")
 def list_mcp_tools(payload: McpToolsListRequest) -> McpToolsListResponse:
     try:
         from data_designer.engine.mcp import io as mcp_io
