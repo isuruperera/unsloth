@@ -8,6 +8,7 @@ Supports web search (DuckDuckGo), Python code execution, and terminal commands.
 """
 
 import ast
+import hashlib
 import os
 
 os.environ["UNSLOTH_IS_PRESENT"] = "1"
@@ -25,32 +26,33 @@ _EXEC_TIMEOUT = 300  # 5 minutes
 _MAX_OUTPUT_CHARS = 8000  # truncate long output
 _BASH_BLOCKED_WORDS = {"rm", "sudo", "dd", "chmod", "mkfs", "shutdown", "reboot"}
 
-# Per-session working directories so each chat thread gets its own sandbox.
-# Falls back to a shared ~/studio_sandbox/ for API callers without a session_id.
-_workdirs: dict[str, str] = {}
+# Working directories are scoped by authenticated subject and conversation session.
+_workdirs: dict[tuple[str | None, str | None], str] = {}
 
 
-def _get_workdir(session_id: str | None = None) -> str:
-    """Return (and lazily create) a persistent working directory for tool execution."""
+def _get_workdir_key(
+    current_subject: str | None = None, session_id: str | None = None
+) -> str:
+    """Return an opaque filesystem-safe key for a subject and conversation session."""
+    identity = repr((current_subject, session_id)).encode()
+    return hashlib.sha256(identity).hexdigest()
+
+
+def _get_workdir(
+    session_id: str | None = None, current_subject: str | None = None
+) -> str:
+    """Return a persistent working directory scoped to a subject and session."""
     global _workdirs
-    key = session_id or "_default"
-    if key not in _workdirs or not os.path.isdir(_workdirs[key]):
+    cache_key = (current_subject, session_id)
+    if cache_key not in _workdirs or not os.path.isdir(_workdirs[cache_key]):
         home = os.path.expanduser("~")
         sandbox_root = os.path.join(home, "studio_sandbox")
-        if session_id:
-            # Sanitize: strip path separators and parent-dir references
-            safe_id = os.path.basename(session_id.replace("..", ""))
-            if not safe_id:
-                safe_id = "_invalid"
-            workdir = os.path.join(sandbox_root, safe_id)
-            # Verify resolved path stays under sandbox root
-            if not os.path.realpath(workdir).startswith(os.path.realpath(sandbox_root)):
-                workdir = os.path.join(sandbox_root, "_invalid")
-        else:
-            workdir = sandbox_root
+        workdir = os.path.join(
+            sandbox_root, _get_workdir_key(current_subject, session_id)
+        )
         os.makedirs(workdir, exist_ok = True)
-        _workdirs[key] = workdir
-    return _workdirs[key]
+        _workdirs[cache_key] = workdir
+    return _workdirs[cache_key]
 
 
 WEB_SEARCH_TOOL = {
@@ -119,12 +121,14 @@ def execute_tool(
     cancel_event = None,
     timeout: int | None = _TIMEOUT_UNSET,
     session_id: str | None = None,
+    current_subject: str | None = None,
 ) -> str:
     """Execute a tool by name with the given arguments. Returns result as a string.
 
     ``timeout``: int sets per-call limit in seconds, ``None`` means no limit,
     unset (default) uses ``_EXEC_TIMEOUT`` (300 s).
-    ``session_id``: optional thread/session ID for per-conversation sandbox isolation.
+    ``session_id``: optional conversation ID scoped within ``current_subject``;
+    it is not an authorization identity by itself.
     """
     logger.info(
         f"execute_tool: name={name}, session_id={session_id}, timeout={timeout}"
@@ -134,11 +138,19 @@ def execute_tool(
         return _web_search(arguments.get("query", ""), timeout = effective_timeout)
     if name == "python":
         return _python_exec(
-            arguments.get("code", ""), cancel_event, effective_timeout, session_id
+            arguments.get("code", ""),
+            cancel_event,
+            effective_timeout,
+            session_id,
+            current_subject,
         )
     if name == "terminal":
         return _bash_exec(
-            arguments.get("command", ""), cancel_event, effective_timeout, session_id
+            arguments.get("command", ""),
+            cancel_event,
+            effective_timeout,
+            session_id,
+            current_subject,
         )
     return f"Unknown tool: {name}"
 
@@ -385,6 +397,7 @@ def _python_exec(
     cancel_event = None,
     timeout: int = _EXEC_TIMEOUT,
     session_id: str | None = None,
+    current_subject: str | None = None,
 ) -> str:
     """Execute Python code in a subprocess sandbox."""
     if not code or not code.strip():
@@ -396,7 +409,7 @@ def _python_exec(
         return error
 
     tmp_path = None
-    workdir = _get_workdir(session_id)
+    workdir = _get_workdir(session_id, current_subject)
     try:
         fd, tmp_path = tempfile.mkstemp(
             suffix = ".py", prefix = "studio_exec_", dir = workdir
@@ -449,6 +462,7 @@ def _bash_exec(
     cancel_event = None,
     timeout: int = _EXEC_TIMEOUT,
     session_id: str | None = None,
+    current_subject: str | None = None,
 ) -> str:
     """Execute a bash command in a subprocess sandbox."""
     if not command or not command.strip():
@@ -461,7 +475,7 @@ def _bash_exec(
         return f"Blocked command(s) for safety: {', '.join(sorted(blocked))}"
 
     try:
-        workdir = _get_workdir(session_id)
+        workdir = _get_workdir(session_id, current_subject)
         proc = subprocess.Popen(
             ["bash", "-c", command],
             stdout = subprocess.PIPE,
