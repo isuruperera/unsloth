@@ -224,6 +224,17 @@ def get_all_jwt_secrets() -> list:
         conn.close()
 
 
+def get_workspace_owner() -> Optional[str]:
+    """Return the earliest-created user as the Studio workspace owner."""
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT username FROM auth_user ORDER BY id ASC LIMIT 1")
+        row = cur.fetchone()
+        return row["username"] if row else None
+    finally:
+        conn.close()
+
+
 def requires_password_change(username: str) -> bool:
     """Return whether the user must change the seeded default password."""
     conn = get_connection()

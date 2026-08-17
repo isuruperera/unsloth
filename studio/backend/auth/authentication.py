@@ -13,6 +13,7 @@ from .storage import (
     get_all_jwt_secrets,
     get_jwt_secret,
     get_user_and_secret,
+    get_workspace_owner,
     load_jwt_secret,
     save_refresh_token,
     verify_refresh_token,
@@ -113,6 +114,16 @@ def reload_secret() -> None:
     load_jwt_secret()
 
 
+def _authorize_workspace_owner(subject: str, workspace_owner: Optional[str]) -> str:
+    """Authorize the subject to access the process-wide Studio workspace."""
+    if subject != workspace_owner:
+        raise HTTPException(
+            status_code = status.HTTP_403_FORBIDDEN,
+            detail = "Forbidden",
+        )
+    return subject
+
+
 def get_current_subject(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> str:
@@ -175,7 +186,7 @@ def _get_current_subject(
                 status_code = status.HTTP_403_FORBIDDEN,
                 detail = "Password change required",
             )
-        return subject
+        return _authorize_workspace_owner(subject, get_workspace_owner())
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
