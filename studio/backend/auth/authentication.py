@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 
 from .storage import (
+    DEFAULT_ADMIN_USERNAME,
     get_all_jwt_secrets,
     get_jwt_secret,
     get_user_and_secret,
@@ -56,6 +57,15 @@ def _decode_verified_subject(token: str) -> Optional[str]:
         except jwt.InvalidTokenError:
             continue
     return None
+
+
+def _authorize_subject(subject: str) -> str:
+    if subject != DEFAULT_ADMIN_USERNAME:
+        raise HTTPException(
+            status_code = status.HTTP_403_FORBIDDEN,
+            detail = "Forbidden",
+        )
+    return subject
 
 
 def create_access_token(
@@ -175,7 +185,7 @@ def _get_current_subject(
                 status_code = status.HTTP_403_FORBIDDEN,
                 detail = "Password change required",
             )
-        return subject
+        return _authorize_subject(subject)
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
