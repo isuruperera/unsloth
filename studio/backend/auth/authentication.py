@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 
+from . import storage
 from .storage import (
     get_all_jwt_secrets,
     get_jwt_secret,
@@ -113,13 +114,25 @@ def reload_secret() -> None:
     load_jwt_secret()
 
 
+def authorize_subject(subject: str) -> str:
+    """Authorize the configured owner of the process-global resource domain."""
+    if subject != storage.DEFAULT_ADMIN_USERNAME:
+        raise HTTPException(
+            status_code = status.HTTP_403_FORBIDDEN,
+            detail = "Not authorized",
+        )
+    return subject
+
+
 def get_current_subject(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> str:
     """Validate JWT and require the password-change flow to be completed."""
-    return _get_current_subject(
-        credentials,
-        allow_password_change = False,
+    return authorize_subject(
+        _get_current_subject(
+            credentials,
+            allow_password_change = False,
+        )
     )
 
 
