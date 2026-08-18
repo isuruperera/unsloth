@@ -83,7 +83,8 @@ def create_refresh_token(subject: str) -> str:
     """
     Create a random refresh token, store its hash in SQLite, and return it.
 
-    Refresh tokens are opaque (not JWTs) and expire after REFRESH_TOKEN_EXPIRE_DAYS.
+    Issuing a token invalidates the subject's prior refresh token. Refresh tokens are
+    opaque (not JWTs) and expire after REFRESH_TOKEN_EXPIRE_DAYS.
     """
     token = secrets.token_urlsafe(48)
     expires_at = datetime.now(timezone.utc) + timedelta(days = REFRESH_TOKEN_EXPIRE_DAYS)
