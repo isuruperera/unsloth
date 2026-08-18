@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 
+from . import storage
 from .storage import (
     get_all_jwt_secrets,
     get_jwt_secret,
@@ -117,10 +118,13 @@ def get_current_subject(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> str:
     """Validate JWT and require the password-change flow to be completed."""
-    return _get_current_subject(
+    subject = _get_current_subject(
         credentials,
         allow_password_change = False,
     )
+    if subject != storage.DEFAULT_ADMIN_USERNAME:
+        raise HTTPException(status_code = 403, detail = "Not authorized")
+    return subject
 
 
 def get_current_subject_allow_password_change(
