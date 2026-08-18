@@ -302,11 +302,12 @@ def update_password(username: str, new_password: str) -> bool:
 
 def save_refresh_token(token: str, username: str, expires_at: str) -> None:
     """
-    Store a hashed refresh token with its associated username and expiry.
+    Store a hashed refresh token, replacing the user's prior refresh-token sessions.
     """
     token_hash = _hash_token(token)
     conn = get_connection()
     try:
+        conn.execute("DELETE FROM refresh_tokens WHERE username = ?", (username,))
         conn.execute(
             """
             INSERT INTO refresh_tokens (token_hash, username, expires_at)
