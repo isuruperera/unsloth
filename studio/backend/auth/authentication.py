@@ -81,7 +81,7 @@ def create_access_token(
 
 def create_refresh_token(subject: str) -> str:
     """
-    Create a random refresh token, store its hash in SQLite, and return it.
+    Create a random refresh token, replacing prior refresh tokens for the subject.
 
     Refresh tokens are opaque (not JWTs) and expire after REFRESH_TOKEN_EXPIRE_DAYS.
     """
