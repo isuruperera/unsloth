@@ -51,6 +51,7 @@ class ModelUsage:
 @dataclass
 class Job:
     job_id: str
+    creator_subject: str
     status: JobStatus = "created"
     stage: str | None = None
     current_column: str | None = None
