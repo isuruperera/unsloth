@@ -71,7 +71,7 @@ class JobManager:
         self._pump_thread: threading.Thread | None = None
         self._seq: int = 0
 
-    def start(self, *, recipe: dict, run: dict) -> str:
+    def start(self, *, recipe: dict, run: dict, creator_subject: str) -> str:
         """Spawn the job subprocess (one at a time, no cap)."""
         llm_columns = recipe.get("columns") or []
         llm_column_count = 0
@@ -90,7 +90,12 @@ class JobManager:
                 raise RuntimeError("job already running")
 
             job_id = uuid.uuid4().hex
-            self._job = Job(job_id = job_id, status = "pending", started_at = time.time())
+            self._job = Job(
+                job_id = job_id,
+                creator_subject = creator_subject,
+                status = "pending",
+                started_at = time.time(),
+            )
             self._job.progress_columns_total = llm_column_count
             self._events.clear()
             self._seq = 0
@@ -132,10 +137,19 @@ class JobManager:
                 pass
             return True
 
-    def get_status(self, job_id: str) -> dict | None:
+    def get_status(
+        self, job_id: str, *, creator_subject: str | None = None
+    ) -> dict | None:
         """UI friendly snapshot that we need. Alternative to sse kinda of and structured"""
         with self._lock:
-            if self._job is None or self._job.job_id != job_id:
+            if (
+                self._job is None
+                or self._job.job_id != job_id
+                or (
+                    creator_subject is not None
+                    and self._job.creator_subject != creator_subject
+                )
+            ):
                 return None
             job = self._job
             return {
