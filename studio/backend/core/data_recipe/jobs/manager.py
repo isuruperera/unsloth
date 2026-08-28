@@ -403,34 +403,47 @@ class JobManager:
             if proc.is_alive():
                 continue
 
-            for e in self._drain_queue(mp_q):
-                self._handle_event(job, e)
-
-            with self._lock:
-                if self._job and self._job.status in {
-                    "pending",
-                    "active",
-                    "cancelling",
-                }:
-                    if self._job.status == "cancelling":
-                        self._job.status = "cancelled"
-                    else:
-                        self._job.status = "error"
-                        self._job.error = self._job.error or "process exited"
-                    self._job.finished_at = time.time()
-                    event_type = (
-                        EVENT_JOB_CANCELLED
-                        if self._job.status == "cancelled"
-                        else EVENT_JOB_ERROR
-                    )
-                    self._emit(
-                        {
-                            "type": event_type,
-                            "ts": time.time(),
-                            "job_id": self._job.job_id,
-                        }
-                    )
+            self._handle_process_exit(job, mp_q)
             return
+
+    def _handle_process_exit(self, job: Job, mp_q: Any) -> None:
+        for event in self._drain_queue(mp_q):
+            self._handle_event(job, event)
+        self._finalize_exited_job()
+
+    def _finalize_exited_job(self) -> None:
+        with self._lock:
+            if not self._has_running_job_to_finalize():
+                return
+            job = self._job
+            assert job is not None
+            event_type = self._update_exited_job_status(job)
+            self._emit(
+                {
+                    "type": event_type,
+                    "ts": time.time(),
+                    "job_id": job.job_id,
+                }
+            )
+
+    def _has_running_job_to_finalize(self) -> bool:
+        return self._job is not None and self._job.status in {
+            "pending",
+            "active",
+            "cancelling",
+        }
+
+    @staticmethod
+    def _update_exited_job_status(job: Job) -> str:
+        if job.status == "cancelling":
+            job.status = "cancelled"
+            event_type = EVENT_JOB_CANCELLED
+        else:
+            job.status = "error"
+            job.error = job.error or "process exited"
+            event_type = EVENT_JOB_ERROR
+        job.finished_at = time.time()
+        return event_type
 
     def _handle_event(self, job: Job, event: dict) -> None:
         """Apply event -> job state + forward to SSE."""
